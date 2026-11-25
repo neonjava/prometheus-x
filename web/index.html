@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Prometheus-X | Defect Detection</title>
+  <style>
+    :root {
+      --green: #2e7d32; --green-light: #4caf50; --green-tint: #e8f5e9; --green-line: #c8e6c9;
+      --green-grad: linear-gradient(135deg, #4caf50 0%, #2e7d32 100%);
+      --bg: #f4f8f5; --surface: rgba(255, 255, 255, 0.78); --surface-card: rgba(255, 255, 255, 0.88);
+      --text: #1b382b; --text-muted: #4e6b5d; --border: rgba(200, 230, 201, 0.7); --border-line: rgba(255, 255, 255, 0.9);
+      --r-xl: 1.5rem; --r-lg: 1rem; --r-pill: 999px;
+      --shadow-mac: inset 0 1px 0 rgba(255, 255, 255, 0.95), 0 2px 8px rgba(46, 125, 50, 0.06), 0 20px 40px -15px rgba(30, 80, 45, 0.22);
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      min-height: 100vh; font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", Roboto, sans-serif;
+      color: var(--text); background: var(--bg); display: flex; flex-direction: column; align-items: center;
+      padding: 2rem 1rem; position: relative; overflow-x: hidden;
+    }
+    body::before {
+      content: ""; position: fixed; inset: 0; z-index: -2; pointer-events: none;
+      background: radial-gradient(60% 65% at 10% 10%, rgba(200, 230, 201, 0.6), transparent 70%),
+                  radial-gradient(55% 55% at 90% 15%, rgba(232, 245, 233, 0.8), transparent 70%),
+                  radial-gradient(65% 65% at 85% 90%, rgba(165, 214, 167, 0.45), transparent 70%),
+                  linear-gradient(160deg, #f7faf8 0%, #eef6f1 50%, #f4f8f5 100%);
+    }
+    #leaves-canvas { position: fixed; inset: 0; z-index: -1; pointer-events: none; }
+    .mac-nav {
+      background: var(--surface); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
+      border: 1px solid var(--border-line); border-radius: var(--r-pill); padding: 0.5rem 1.25rem;
+      box-shadow: 0 4px 20px -6px rgba(46, 125, 50, 0.15); display: flex; align-items: center; gap: 0.6rem;
+      margin-bottom: 1.5rem; font-size: 0.9rem; font-weight: 500;
+    }
+    .status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--green-light); box-shadow: 0 0 6px var(--green-light); }
+    .mac-window {
+      width: 100%; max-width: 620px; background: var(--surface-card); backdrop-filter: blur(24px);
+      -webkit-backdrop-filter: blur(24px); border: 1px solid var(--border-line); border-radius: var(--r-xl);
+      box-shadow: var(--shadow-mac); overflow: hidden;
+    }
+    .mac-titlebar {
+      background: rgba(240, 248, 242, 0.7); border-bottom: 1px solid var(--border);
+      padding: 0.65rem 1rem; display: flex; align-items: center; position: relative;
+    }
+    .mac-dots { display: flex; gap: 7px; }
+    .mac-dot { width: 11px; height: 11px; border-radius: 50%; }
+    .mac-dot.close { background: #ff5f56; } .mac-dot.min { background: #ffbd2e; } .mac-dot.max { background: #27c93f; }
+    .mac-title { position: absolute; left: 50%; transform: translateX(-50%); font-size: 0.82rem; font-weight: 600; color: var(--text-muted); }
+    .mac-body { padding: 1.75rem; }
+    h1 { font-size: 1.4rem; font-weight: 700; margin-bottom: 0.35rem; }
+    p.subtitle { font-size: 0.9rem; color: var(--text-muted); margin-bottom: 1.25rem; }
+    .upload-zone {
+      border: 2px dashed #81c784; background: var(--green-tint); border-radius: var(--r-lg);
+      padding: 1.25rem; text-align: center; cursor: pointer; transition: background 0.2s;
+    }
+    .upload-zone:hover { background: #e0f2e1; }
+    .upload-zone input { display: none; }
+    .upload-label { cursor: pointer; font-weight: 600; color: var(--green); font-size: 0.92rem; }
+    .btn-predict {
+      margin-top: 1rem; width: 100%; padding: 0.7rem 1.25rem; font-size: 0.95rem; font-weight: 600;
+      color: #fff; background: var(--green-grad); border: none; border-radius: var(--r-pill);
+      box-shadow: 0 4px 14px rgba(46, 125, 50, 0.3); cursor: pointer;
+    }
+    .btn-predict:disabled { opacity: 0.6; cursor: not-allowed; }
+    #preview-container { margin-top: 1.25rem; text-align: center; display: none; }
+    #preview { max-width: 100%; max-height: 280px; border-radius: var(--r-lg); border: 1px solid var(--border); box-shadow: 0 4px 12px rgba(0,0,0,0.06); }
+    #result-box {
+      margin-top: 1.25rem; padding: 1rem; border-radius: var(--r-lg);
+      background: rgba(232, 245, 233, 0.85); border: 1px solid var(--green-line); display: none;
+    }
+    .metric-row { display: flex; justify-content: space-between; align-items: center; padding: 0.35rem 0; font-size: 0.95rem; }
+    .badge { padding: 0.2rem 0.7rem; border-radius: var(--r-pill); font-weight: 700; font-size: 0.82rem; background: var(--green); color: #fff; }
+    .score-val { font-family: ui-monospace, Menlo, monospace; font-weight: 700; color: var(--green); }
+    #error-box { margin-top: 0.85rem; padding: 0.65rem 0.85rem; border-radius: var(--r-lg); background: #ffebee; border: 1px solid #ffcdd2; color: #c62828; font-size: 0.85rem; display: none; }
+    @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } #leaves-canvas { display: none; } }
+  </style>
+</head>
+<body>
+  <canvas id="leaves-canvas"></canvas>
+  <nav class="mac-nav"><span class="status-dot"></span><span>Prometheus-X Live Inspection</span></nav>
+  <main class="mac-window">
+    <div class="mac-titlebar">
+      <div class="mac-dots"><span class="mac-dot close"></span><span class="mac-dot min"></span><span class="mac-dot max"></span></div>
+      <span class="mac-title">predict.app &mdash; PCB Quality Analyzer</span>
+    </div>
+    <div class="mac-body">
+      <h1>Defect Detection</h1>
+      <p class="subtitle">Upload a PCB photo to evaluate quality verdict and anomaly score.</p>
+      <form id="upload-form">
+        <div class="upload-zone" id="drop-zone">
+          <input type="file" id="image-input" name="image" accept="image/*" required>
+          <label for="image-input" class="upload-label" id="file-label">Click or drag &amp; drop an image here</label>
+        </div>
+        <button type="submit" class="btn-predict" id="submit-btn">Run Predict</button>
+      </form>
+      <div id="error-box"></div>
+      <div id="preview-container"><img id="preview" alt="Uploaded PCB Preview"></div>
+      <div id="result-box">
+        <div class="metric-row"><span>Verdict:</span><span class="badge" id="verdict"></span></div>
+        <div class="metric-row"><span>Anomaly Score:</span><span class="score-val" id="score"></span></div>
+      </div>
+    </div>
+  </main>
+  <script>
+    const canvas = document.getElementById('leaves-canvas'), ctx = canvas.getContext('2d');
+    let width = (canvas.width = window.innerWidth), height = (canvas.height = window.innerHeight);
+    window.addEventListener('resize', () => { width = canvas.width = window.innerWidth; height = canvas.height = window.innerHeight; });
+    const leaves = Array.from({ length: 20 }, () => ({
+      x: Math.random() * width, y: Math.random() * height, size: 9 + Math.random() * 12,
+      speedX: -0.25 + Math.random() * 0.5, speedY: 0.4 + Math.random() * 0.7,
+      angle: Math.random() * Math.PI * 2, spin: -0.015 + Math.random() * 0.03,
+      alpha: 0.25 + Math.random() * 0.35, hue: 120 + Math.random() * 25
+    }));
+    function drawLeaf(l) {
+      ctx.save(); ctx.translate(l.x, l.y); ctx.rotate(l.angle);
+      ctx.fillStyle = `hsla(${l.hue}, 45%, 45%, ${l.alpha})`; ctx.beginPath();
+      ctx.moveTo(0, -l.size / 2); ctx.quadraticCurveTo(l.size / 2, 0, 0, l.size / 2); ctx.quadraticCurveTo(-l.size / 2, 0, 0, -l.size / 2);
+      ctx.fill(); ctx.restore();
+    }
+    function animateLeaves() {
+      ctx.clearRect(0, 0, width, height);
+      for (const l of leaves) {
+        l.y += l.speedY; l.x += l.speedX + Math.sin(l.y * 0.01) * 0.35; l.angle += l.spin;
+        if (l.y > height + 20) { l.y = -20; l.x = Math.random() * width; }
+        drawLeaf(l);
+      }
+      requestAnimationFrame(animateLeaves);
+    }
+    requestAnimationFrame(animateLeaves);
+
+    const form = document.getElementById('upload-form'), imageInput = document.getElementById('image-input'),
+          fileLabel = document.getElementById('file-label'), previewContainer = document.getElementById('preview-container'),
+          preview = document.getElementById('preview'), resultBox = document.getElementById('result-box'),
+          verdictEl = document.getElementById('verdict'), scoreEl = document.getElementById('score'),
+          errorBox = document.getElementById('error-box'), submitBtn = document.getElementById('submit-btn');
+
+    imageInput.addEventListener('change', () => {
+      errorBox.style.display = 'none'; const file = imageInput.files[0];
+      if (file) {
+        fileLabel.textContent = file.name; preview.src = URL.createObjectURL(file); previewContainer.style.display = 'block';
+      } else {
+        fileLabel.textContent = 'Click or drag & drop an image here'; preview.src = ''; previewContainer.style.display = 'none';
+      }
+    });
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault(); errorBox.style.display = 'none'; resultBox.style.display = 'none';
+      const file = imageInput.files[0]; if (!file) return;
+      const formData = new FormData(); formData.append('image', file);
+      submitBtn.disabled = true; submitBtn.textContent = 'Inspecting...';
+      try {
+        const res = await fetch('/predict', { method: 'POST', body: formData });
+        if (!res.ok) { const errText = await res.text(); throw new Error(`Server returned ${res.status}: ${errText}`); }
+        const data = await res.json();
+        verdictEl.textContent = data.verdict; scoreEl.textContent = Number(data.score).toFixed(4);
+        resultBox.style.display = 'block';
+      } catch (err) {
+        errorBox.textContent = err.message; errorBox.style.display = 'block';
+      } finally {
+        submitBtn.disabled = false; submitBtn.textContent = 'Run Predict';
+      }
+    });
+  </script>
+</body>
+</html>
