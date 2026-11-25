@@ -417,6 +417,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "config"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "thiserror 2.0.21",
+ "toml",
+]
+
+[[package]]
 name = "constant_time_eq"
 version = "0.6.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -716,6 +725,7 @@ dependencies = [
  "candle-core",
  "candle-nn",
  "candle-transformers",
+ "config",
  "image",
  "thiserror 2.0.21",
 ]
@@ -2026,11 +2036,11 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "axum",
+ "config",
  "image",
  "serde",
  "serde_json",
  "tokio",
- "toml",
 ]
 
 [[package]]

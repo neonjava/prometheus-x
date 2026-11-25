@@ -1,36 +1,11 @@
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use axum::extract::{DefaultBodyLimit, Multipart};
 use axum::http::StatusCode;
 use axum::routing::post;
 use axum::{Json, Router};
+use config::Config;
 use serde::{Deserialize, Serialize};
-
-#[derive(Debug, Deserialize)]
-struct Config {
-    server_bind: String,
-    max_upload_bytes: usize,
-}
-
-impl Config {
-    // Read server bind address from config file.
-    fn load(path: &Path) -> anyhow::Result<Self> {
-        let content = std::fs::read_to_string(path)
-            .map_err(|err| anyhow::anyhow!("failed to read config {}: {err}", path.display()))?;
-        let config: Self = toml::from_str(&content)
-            .map_err(|err| anyhow::anyhow!("failed to parse config {}: {err}", path.display()))?;
-        if config.server_bind.trim().is_empty() {
-            anyhow::bail!("server_bind in {} must not be empty", path.display());
-        }
-        if config.max_upload_bytes == 0 {
-            anyhow::bail!(
-                "max_upload_bytes in {} must be greater than 0",
-                path.display()
-            );
-        }
-        Ok(config)
-    }
-}
 
 #[derive(Debug, Serialize, Deserialize, PartialEq)]
 struct PredictionResponse {
@@ -122,27 +97,6 @@ mod tests {
 
     const TEST_UPLOAD_LIMIT: usize = 1 << 20;
 
-    struct TempConfig(PathBuf);
-
-    impl Drop for TempConfig {
-        fn drop(&mut self) {
-            let _ = std::fs::remove_file(&self.0);
-        }
-    }
-
-    fn write_temp_config(content: &str) -> TempConfig {
-        let path = std::env::temp_dir().join(format!(
-            "prometheus_x_test_config_{}_{}.toml",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map(|d| d.as_nanos())
-                .unwrap_or(0)
-        ));
-        std::fs::write(&path, content).expect("write temp config");
-        TempConfig(path)
-    }
-
     fn synthetic_png_bytes() -> Vec<u8> {
         let img = RgbImage::from_fn(16, 16, |x, y| Rgb([x as u8, y as u8, 128]));
         let mut buffer = Vec::new();
@@ -150,32 +104,6 @@ mod tests {
             .write_to(&mut Cursor::new(&mut buffer), ImageFormat::Png)
             .expect("encode synthetic png");
         buffer
-    }
-
-    #[test]
-    fn config_load_valid() {
-        let temp = write_temp_config("server_bind = \"127.0.0.1:8080\"\nmax_upload_bytes = 1024\n");
-        let cfg = Config::load(&temp.0).expect("load config");
-        assert_eq!(cfg.server_bind, "127.0.0.1:8080");
-        assert_eq!(cfg.max_upload_bytes, 1024);
-    }
-
-    #[test]
-    fn config_load_empty_bind_fails() {
-        let temp = write_temp_config("server_bind = \"   \"\nmax_upload_bytes = 1024\n");
-        assert!(Config::load(&temp.0).is_err());
-    }
-
-    #[test]
-    fn config_load_zero_upload_limit_fails() {
-        let temp = write_temp_config("server_bind = \"127.0.0.1:8080\"\nmax_upload_bytes = 0\n");
-        assert!(Config::load(&temp.0).is_err());
-    }
-
-    #[test]
-    fn config_load_missing_file_fails() {
-        let missing = PathBuf::from("nonexistent_config_file_for_test.toml");
-        assert!(Config::load(&missing).is_err());
     }
 
     #[tokio::test]

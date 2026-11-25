@@ -3,19 +3,13 @@ use std::path::PathBuf;
 use candle_core::{DType, Device, Tensor};
 use candle_nn::{Func, Module, VarBuilder};
 use candle_transformers::models::resnet;
+use config::Config;
 use image::{imageops::FilterType, DynamicImage};
 use thiserror::Error;
 
 const IMAGENET_MEAN: [f32; 3] = [0.485, 0.456, 0.406];
 const IMAGENET_STD: [f32; 3] = [0.229, 0.224, 0.225];
 const PIXEL_SCALE: f64 = 255.0;
-
-// Temporary stub until the `config` crate (issue #2) is merged.
-#[derive(Debug, Clone)]
-pub struct Config {
-    pub model_weights_path: PathBuf,
-    pub input_size: usize,
-}
 
 #[derive(Debug, Error)]
 pub enum FeaturesError {
@@ -119,6 +113,21 @@ mod tests {
         varmap.save(path).expect("save test safetensors");
     }
 
+    fn test_config(model_weights_path: PathBuf, input_size: usize) -> Config {
+        Config {
+            model_weights_path,
+            input_size,
+            good_vectors_path: PathBuf::new(),
+            train_dir: PathBuf::new(),
+            val_dir: PathBuf::new(),
+            test_dir: PathBuf::new(),
+            threshold_percentile: 95.0,
+            uncertain_margin: 0.1,
+            server_bind: String::new(),
+            max_upload_bytes: 1,
+        }
+    }
+
     fn synthetic_image(offset: u8) -> DynamicImage {
         let img = RgbImage::from_fn(48, 48, |x, y| {
             Rgb([
@@ -142,10 +151,7 @@ mod tests {
     #[test]
     fn same_image_gives_same_fixed_length_vector() {
         let weights = temp_weights_path("same");
-        let cfg = Config {
-            model_weights_path: weights.0.clone(),
-            input_size: 32,
-        };
+        let cfg = test_config(weights.0.clone(), 32);
         let extractor = Extractor::load(&cfg).expect("load extractor");
         let img = synthetic_image(10);
 
@@ -160,10 +166,7 @@ mod tests {
     #[test]
     fn different_images_give_different_vectors() {
         let weights = temp_weights_path("diff");
-        let cfg = Config {
-            model_weights_path: weights.0.clone(),
-            input_size: 32,
-        };
+        let cfg = test_config(weights.0.clone(), 32);
         let extractor = Extractor::load(&cfg).expect("load extractor");
 
         let v1 = extractor.extract(&synthetic_image(0)).expect("extract a");
@@ -174,16 +177,10 @@ mod tests {
 
     #[test]
     fn rejects_invalid_config_and_missing_file() {
-        let zero_size = Config {
-            model_weights_path: PathBuf::from("unused.safetensors"),
-            input_size: 0,
-        };
+        let zero_size = test_config(PathBuf::from("unused.safetensors"), 0);
         assert!(Extractor::load(&zero_size).is_err());
 
-        let missing = Config {
-            model_weights_path: PathBuf::from("/nonexistent/resnet18.safetensors"),
-            input_size: 32,
-        };
+        let missing = test_config(PathBuf::from("/nonexistent/resnet18.safetensors"), 32);
         assert!(Extractor::load(&missing).is_err());
     }
 }

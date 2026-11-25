@@ -1,11 +1,5 @@
 use thiserror::Error;
 
-// Temporary stub until the `config` crate (issue #2) is merged.
-#[derive(Debug, Clone, PartialEq)]
-pub struct Config {
-    pub threshold_percentile: f32,
-}
-
 #[derive(Debug, Error, PartialEq)]
 pub enum AnalysisError {
     #[error("scores slice cannot be empty")]
@@ -117,16 +111,5 @@ mod tests {
             pick_threshold(&scores, 50.0).unwrap_err(),
             AnalysisError::InvalidScore
         );
-    }
-
-    #[test]
-    fn test_percentile_from_config() {
-        let config = Config {
-            threshold_percentile: 95.0,
-        };
-        let scores = [1.0, 2.0, 3.0, 4.0, 5.0];
-        // 95th percentile: rank = 0.95 * 4 = 3.8 -> 4.0 + 0.8 * 1.0 = 4.8
-        let threshold = pick_threshold(&scores, config.threshold_percentile).unwrap();
-        assert!((threshold - 4.8).abs() < 1e-6);
     }
 }

@@ -1,11 +1,11 @@
-# Sample config: fill in locally. Code must read these, never hardcode them.
-model_weights_path = ""
-input_size = 0
-good_vectors_path = ""
-train_dir = ""
-val_dir = ""
-test_dir = ""
-threshold_percentile = 0.0
-uncertain_margin = 0.0
-server_bind = ""
-max_upload_bytes = 0
+# Every tunable value lives here. Paths are relative to the project root.
+model_weights_path = "models/resnet18.safetensors"
+input_size = 224
+good_vectors_path = "models/good_vectors.json"
+train_dir = "data/visa_pcb1/train/good"
+val_dir = "data/visa_pcb1/val/good"
+test_dir = "data/visa_pcb1/test"
+threshold_percentile = 95.0
+uncertain_margin = 0.1
+server_bind = "127.0.0.1:8080"
+max_upload_bytes = 20971520

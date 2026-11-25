@@ -1,3 +1,3 @@
 pub mod threshold;
 
-pub use threshold::{pick_threshold, AnalysisError, Config};
+pub use threshold::{pick_threshold, AnalysisError};
