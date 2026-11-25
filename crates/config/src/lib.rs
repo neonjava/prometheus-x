@@ -80,6 +80,8 @@ pub struct Config {
     pub batch_workers: usize,
     /// Longest side of a batch thumbnail, in pixels.
     pub thumb_size: u32,
+    /// Images whose average brightness (0-255) is below this are rejected as blank, not judged.
+    pub min_mean_brightness: f32,
     /// Images per class (good, defect) used by the robustness test.
     pub robustness_sample: usize,
     #[serde(default)]
@@ -125,6 +127,11 @@ impl Config {
         {
             return Err(ConfigError::Invalid(
                 "batch limits, workers and thumb_size must be > 0".into(),
+            ));
+        }
+        if !(0.0..=255.0).contains(&self.min_mean_brightness) {
+            return Err(ConfigError::Invalid(
+                "min_mean_brightness must be in 0..=255".into(),
             ));
         }
         if self.patch_bank_size == 0 {
@@ -174,6 +181,7 @@ max_unpacked_bytes = 1000
 max_batch_files = 10
 batch_workers = 1
 thumb_size = 64
+min_mean_brightness = 10.0
 robustness_sample = 5
 
 [[perturbations]]

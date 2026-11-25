@@ -71,6 +71,13 @@ pub fn perturb(image: &DynamicImage, change: &Perturbation) -> DynamicImage {
     }
 }
 
+/// Average brightness from 0 (black) to 255 (white).
+pub fn mean_brightness(image: &DynamicImage) -> f32 {
+    let grey = image.to_luma8();
+    let total: u64 = grey.pixels().map(|p| u64::from(p[0])).sum();
+    total as f32 / grey.len().max(1) as f32
+}
+
 /// True when the file name ends in an extension of a format the image crate can read.
 pub fn is_image_extension(path: &Path) -> bool {
     path.extension()
@@ -152,6 +159,13 @@ mod tests {
         let out = perturb(&img, &change);
         assert_eq!((out.width(), out.height()), (8, 8));
         assert!(out.to_rgb8().get_pixel(0, 0)[0] < 100);
+    }
+
+    #[test]
+    fn brightness_separates_black_masks_from_photos() {
+        let flat = |v| DynamicImage::ImageRgb8(RgbImage::from_pixel(4, 4, Rgb([v, v, v])));
+        assert!(mean_brightness(&flat(1)) < 2.0);
+        assert!((mean_brightness(&flat(120)) - 120.0).abs() < 1.0);
     }
 
     #[test]

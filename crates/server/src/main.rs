@@ -8,7 +8,9 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use axum::extract::{DefaultBodyLimit, Multipart, State};
-use axum::http::StatusCode;
+use axum::http::{header, HeaderValue, StatusCode};
+use axum::middleware::map_response;
+use axum::response::Response;
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use batch::{BatchSettings, Batches};
@@ -60,6 +62,10 @@ async fn predict(
         message: format!("Image decoded: {}x{} px", image.width(), image.height()),
         ms: decode_started.elapsed().as_millis() as u64,
     });
+
+    if let Some(reason) = state.unusable(&image) {
+        return Err(bad_request(reason));
+    }
 
     // Inference is CPU-heavy, keep it off the async threads.
     let prediction = tokio::task::spawn_blocking(move || state.model.predict(&image))
@@ -182,6 +188,15 @@ async fn status(State(state): State<Shared>) -> Json<StatusResponse> {
     })
 }
 
+// Browsers must re-check page files, or they keep showing an old version after an update.
+async fn revalidate(mut response: Response) -> Response {
+    response
+        .headers_mut()
+        .entry(header::CACHE_CONTROL)
+        .or_insert(HeaderValue::from_static("no-cache"));
+    response
+}
+
 // Axum's default 2 MB body limit would reject real PCB photos.
 fn app(state: Shared, web_dir: &Path, max_upload_bytes: usize, max_batch_bytes: u64) -> Router {
     let single = Router::new()
@@ -191,7 +206,7 @@ fn app(state: Shared, web_dir: &Path, max_upload_bytes: usize, max_batch_bytes: 
         .route("/review/pending", get(pending))
         .route("/status", get(status))
         .route("/batches", get(batch::list_endpoint))
-        .route("/batch/{id}", get(batch::status))
+        .route("/batch/{id}", get(batch::status).delete(batch::remove))
         .route("/batch/{id}/item/{name}", get(batch::item))
         .route("/batch/{id}/thumb/{name}", get(batch::thumb))
         .route("/batch/{id}/image/{name}", get(batch::original))
@@ -205,6 +220,7 @@ fn app(state: Shared, web_dir: &Path, max_upload_bytes: usize, max_batch_bytes: 
     single
         .merge(big)
         .fallback_service(ServeDir::new(web_dir))
+        .layer(map_response(revalidate))
         .with_state(state)
 }
 
@@ -234,6 +250,7 @@ async fn main() -> anyhow::Result<()> {
         model: Box::new(Predictor::load(&cfg)?),
         decisions_path: cfg.decisions_path.clone(),
         batches: Batches::new(batch_settings(&cfg)),
+        min_mean_brightness: cfg.min_mean_brightness,
     });
     let listener = tokio::net::TcpListener::bind(&cfg.server_bind)
         .await
@@ -281,6 +298,7 @@ mod tests {
         });
         let state = Arc::new(AppState {
             model: Box::new(StubModel),
+            min_mean_brightness: 1.0,
             decisions_path: root.join("decisions.jsonl"),
             batches,
         });
@@ -387,6 +405,7 @@ mod tests {
         assert!(response.contains("\"patch_threshold\":6.0"));
         let page = send(addr, "GET", "/", "text/html", b"").await;
         assert!(page.contains("<html>page</html>"));
+        assert!(page.contains("cache-control: no-cache"), "{page}");
     }
 
     #[tokio::test]
@@ -483,6 +502,25 @@ mod tests {
         )
         .await;
         assert!(csv.contains("one.png,Defect"));
+        let removed = send(
+            addr,
+            "DELETE",
+            &format!("/batch/{id}"),
+            "application/json",
+            b"",
+        )
+        .await;
+        assert!(removed.contains("204 No Content"), "{removed}");
+        let gone = send(
+            addr,
+            "GET",
+            &format!("/batch/{id}"),
+            "application/json",
+            b"",
+        )
+        .await;
+        assert!(gone.contains("404"), "{gone}");
+
         let escape = send(
             addr,
             "GET",

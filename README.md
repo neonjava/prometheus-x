@@ -42,6 +42,7 @@ Every path, size and threshold is in [`config.toml`](config.toml). Use `--config
 | `severity_low_max`, `severity_med_max` | edges of the Low / Medium / High severity buckets |
 | `server_bind`, `max_upload_bytes`, `decisions_path`, `web_dir` | server address, single-image upload limit, where review decisions are saved, folder with the page files |
 | `batches_dir`, `max_batch_bytes`, `max_unpacked_bytes`, `max_batch_files`, `batch_workers`, `thumb_size` | where batches are kept, upload and zip-unpack limits, file cap, images checked at once, thumbnail size |
+| `min_mean_brightness` | images darker than this (0-255) are reported as errors, such as dataset mask files |
 | `robustness_sample`, `[[perturbations]]` | images per class and the photo changes used by `robustness` |
 
 ## The web page

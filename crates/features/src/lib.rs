@@ -193,6 +193,7 @@ mod tests {
             max_batch_files: 1,
             batch_workers: 1,
             thumb_size: 1,
+            min_mean_brightness: 0.0,
             robustness_sample: 1,
             perturbations: Vec::new(),
         }
