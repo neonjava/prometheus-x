@@ -13,6 +13,11 @@ export const getBatch = (id) => fetch(`/batch/${encodeURIComponent(id)}`).then(p
 export const getItem = (id, name) =>
   fetch(`/batch/${encodeURIComponent(id)}/item/${encodeURIComponent(name)}`).then(parse);
 
+export async function deleteBatch(id) {
+  const res = await fetch(`/batch/${encodeURIComponent(id)}`, { method: 'DELETE' });
+  if (!res.ok) throw new Error(`${res.status}: ${await res.text()}`);
+}
+
 export const thumbUrl = (id, name) => `/batch/${encodeURIComponent(id)}/thumb/${encodeURIComponent(name)}`;
 export const imageUrl = (id, name) => `/batch/${encodeURIComponent(id)}/image/${encodeURIComponent(name)}`;
 export const csvUrl = (id) => `/batch/${encodeURIComponent(id)}/export.csv`;
