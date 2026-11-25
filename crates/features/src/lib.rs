@@ -186,6 +186,13 @@ mod tests {
             severity_low_max: 1.0,
             severity_med_max: 2.0,
             decisions_path: PathBuf::new(),
+            web_dir: PathBuf::new(),
+            batches_dir: PathBuf::new(),
+            max_batch_bytes: 1,
+            max_unpacked_bytes: 1,
+            max_batch_files: 1,
+            batch_workers: 1,
+            thumb_size: 1,
             robustness_sample: 1,
             perturbations: Vec::new(),
         }

@@ -67,6 +67,19 @@ pub struct Config {
     pub severity_med_max: f32,
     /// Human review decisions are appended here, one JSON object per line.
     pub decisions_path: PathBuf,
+    /// Folder with the web page files (index.html, css, js).
+    pub web_dir: PathBuf,
+    /// Uploaded batches, their thumbnails and results are kept here.
+    pub batches_dir: PathBuf,
+    /// Largest accepted batch upload (zip or many images), in bytes.
+    pub max_batch_bytes: u64,
+    /// Largest total size a zip may unpack to, in bytes (zip-bomb guard).
+    pub max_unpacked_bytes: u64,
+    pub max_batch_files: usize,
+    /// Images checked at the same time inside one batch.
+    pub batch_workers: usize,
+    /// Longest side of a batch thumbnail, in pixels.
+    pub thumb_size: u32,
     /// Images per class (good, defect) used by the robustness test.
     pub robustness_sample: usize,
     #[serde(default)]
@@ -103,6 +116,16 @@ impl Config {
         }
         if self.max_upload_bytes == 0 {
             return Err(ConfigError::Invalid("max_upload_bytes must be > 0".into()));
+        }
+        if self.max_batch_bytes == 0
+            || self.max_unpacked_bytes == 0
+            || self.max_batch_files == 0
+            || self.batch_workers == 0
+            || self.thumb_size == 0
+        {
+            return Err(ConfigError::Invalid(
+                "batch limits, workers and thumb_size must be > 0".into(),
+            ));
         }
         if self.patch_bank_size == 0 {
             return Err(ConfigError::Invalid("patch_bank_size must be > 0".into()));
@@ -144,6 +167,13 @@ shift_percentile = 99.0
 severity_low_max = 5.0
 severity_med_max = 15.0
 decisions_path = "d.jsonl"
+web_dir = "web"
+batches_dir = "data/batches"
+max_batch_bytes = 1000
+max_unpacked_bytes = 1000
+max_batch_files = 10
+batch_workers = 1
+thumb_size = 64
 robustness_sample = 5
 
 [[perturbations]]

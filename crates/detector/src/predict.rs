@@ -49,6 +49,15 @@ pub struct Prediction {
     pub log: Vec<LogLine>,
 }
 
+/// Sizes and thresholds of the loaded models, for status displays.
+#[derive(Debug, Clone, Copy)]
+pub struct ModelInfo {
+    pub good_vectors: usize,
+    pub patch_rows: usize,
+    pub global_threshold: f32,
+    pub patch_threshold: f32,
+}
+
 /// Loaded models: kept in memory between predictions.
 pub struct Predictor {
     extractor: Extractor,
@@ -97,6 +106,15 @@ impl Predictor {
             severity_low_max: cfg.severity_low_max,
             severity_med_max: cfg.severity_med_max,
         })
+    }
+
+    pub fn info(&self) -> ModelInfo {
+        ModelInfo {
+            good_vectors: self.reference.vectors.len(),
+            patch_rows: self.bank.len(),
+            global_threshold: self.reference.threshold,
+            patch_threshold: self.reference.patch_threshold,
+        }
     }
 
     /// Step 1 quick global check; only odd images go on to Step 2 and possibly Step 3.

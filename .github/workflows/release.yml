@@ -21,6 +21,7 @@ jobs:
           mkdir dist
           find target/release -maxdepth 1 -type f -executable -exec cp {} dist/ \;
           cp config.toml dist/
+          cp -r web dist/web
           tar -czf prometheus-x-linux.tar.gz -C dist .
       - name: publish
         env:
