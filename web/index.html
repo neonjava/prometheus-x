@@ -71,6 +71,7 @@
     }
     .metric-row { display: flex; justify-content: space-between; align-items: center; padding: 0.35rem 0; font-size: 0.95rem; }
     .badge { padding: 0.2rem 0.7rem; border-radius: var(--r-pill); font-weight: 700; font-size: 0.82rem; background: var(--green); color: #fff; }
+    .badge.Defect { background: #c0605a; } .badge.Uncertain { background: #c9a24b; }
     .score-val { font-family: ui-monospace, Menlo, monospace; font-weight: 700; color: var(--green); }
     #error-box { margin-top: 0.85rem; padding: 0.65rem 0.85rem; border-radius: var(--r-lg); background: #ffebee; border: 1px solid #ffcdd2; color: #c62828; font-size: 0.85rem; display: none; }
     @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } #leaves-canvas { display: none; } }
@@ -99,6 +100,7 @@
       <div id="result-box">
         <div class="metric-row"><span>Verdict:</span><span class="badge" id="verdict"></span></div>
         <div class="metric-row"><span>Anomaly Score:</span><span class="score-val" id="score"></span></div>
+        <div class="metric-row"><span>Threshold:</span><span class="score-val" id="threshold"></span></div>
       </div>
     </div>
   </main>
@@ -133,7 +135,7 @@
           fileLabel = document.getElementById('file-label'), previewContainer = document.getElementById('preview-container'),
           preview = document.getElementById('preview'), resultBox = document.getElementById('result-box'),
           verdictEl = document.getElementById('verdict'), scoreEl = document.getElementById('score'),
-          errorBox = document.getElementById('error-box'), submitBtn = document.getElementById('submit-btn');
+          errorBox = document.getElementById('error-box'), thresholdEl = document.getElementById('threshold'), submitBtn = document.getElementById('submit-btn');
 
     imageInput.addEventListener('change', () => {
       errorBox.style.display = 'none'; const file = imageInput.files[0];
@@ -153,7 +155,8 @@
         const res = await fetch('/predict', { method: 'POST', body: formData });
         if (!res.ok) { const errText = await res.text(); throw new Error(`Server returned ${res.status}: ${errText}`); }
         const data = await res.json();
-        verdictEl.textContent = data.verdict; scoreEl.textContent = Number(data.score).toFixed(4);
+        verdictEl.textContent = data.verdict; verdictEl.className = 'badge ' + data.verdict;
+        scoreEl.textContent = Number(data.score).toFixed(4); thresholdEl.textContent = Number(data.threshold).toFixed(4);
         resultBox.style.display = 'block';
       } catch (err) {
         errorBox.textContent = err.message; errorBox.style.display = 'block';

@@ -1,71 +1,91 @@
 use std::path::PathBuf;
+use std::sync::Arc;
 
-use axum::extract::{DefaultBodyLimit, Multipart};
+use axum::extract::{DefaultBodyLimit, Multipart, State};
 use axum::http::StatusCode;
-use axum::routing::post;
+use axum::response::Html;
+use axum::routing::{get, post};
 use axum::{Json, Router};
 use config::Config;
+use detector::Predictor;
+use image::DynamicImage;
 use serde::{Deserialize, Serialize};
+
+const INDEX_HTML: &str = include_str!("../../../web/index.html");
 
 #[derive(Debug, Serialize, Deserialize, PartialEq)]
 struct PredictionResponse {
     verdict: String,
-    score: f64,
+    score: f32,
+    threshold: f32,
 }
 
-// Extract image field from multipart upload and return prediction.
-async fn predict(
-    mut multipart: Multipart,
-) -> Result<Json<PredictionResponse>, (StatusCode, String)> {
-    let mut image_bytes = None;
+/// Anything that can judge an image; lets tests run without model weights.
+trait Model: Send + Sync + 'static {
+    fn predict(&self, image: &DynamicImage) -> Result<PredictionResponse, String>;
+}
 
+impl Model for Predictor {
+    fn predict(&self, image: &DynamicImage) -> Result<PredictionResponse, String> {
+        let prediction = Predictor::predict(self, image).map_err(|e| e.to_string())?;
+        Ok(PredictionResponse {
+            verdict: prediction.verdict.to_string(),
+            score: prediction.score,
+            threshold: self.threshold(),
+        })
+    }
+}
+
+type Shared = Arc<dyn Model>;
+type ApiError = (StatusCode, String);
+
+fn bad_request(message: impl std::fmt::Display) -> ApiError {
+    (StatusCode::BAD_REQUEST, message.to_string())
+}
+
+async fn index() -> Html<&'static str> {
+    Html(INDEX_HTML)
+}
+
+async fn read_image_field(mut multipart: Multipart) -> Result<Vec<u8>, ApiError> {
     while let Some(field) = multipart
         .next_field()
         .await
-        .map_err(|err| (StatusCode::BAD_REQUEST, format!("invalid multipart: {err}")))?
+        .map_err(|e| bad_request(format!("invalid multipart: {e}")))?
     {
         if field.name() == Some("image") {
-            let bytes = field.bytes().await.map_err(|err| {
-                (
-                    StatusCode::BAD_REQUEST,
-                    format!("failed to read image: {err}"),
-                )
-            })?;
-            image_bytes = Some(bytes);
-            break;
+            let bytes = field
+                .bytes()
+                .await
+                .map_err(|e| bad_request(format!("failed to read image: {e}")))?;
+            return Ok(bytes.to_vec());
         }
     }
+    Err(bad_request("missing image field in multipart upload"))
+}
 
-    let bytes = match image_bytes {
-        Some(b) => b,
-        None => {
-            return Err((
-                StatusCode::BAD_REQUEST,
-                "missing image field in multipart upload".to_string(),
-            ));
-        }
-    };
-
-    // Reject unparseable image bytes before inference.
-    image::load_from_memory(&bytes).map_err(|err| {
-        (
-            StatusCode::BAD_REQUEST,
-            format!("invalid image payload: {err}"),
-        )
-    })?;
-
-    // Fixed mock until detector integration (#6) is wired.
-    Ok(Json(PredictionResponse {
-        verdict: "Good".to_string(),
-        score: 0.0,
-    }))
+async fn predict(
+    State(model): State<Shared>,
+    multipart: Multipart,
+) -> Result<Json<PredictionResponse>, ApiError> {
+    let bytes = read_image_field(multipart).await?;
+    let image = image::load_from_memory(&bytes)
+        .map_err(|e| bad_request(format!("invalid image payload: {e}")))?;
+    // Inference is CPU-heavy, keep it off the async threads.
+    let result = tokio::task::spawn_blocking(move || model.predict(&image))
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    Ok(Json(result))
 }
 
 // Axum's default 2 MB body limit would reject real PCB photos.
-fn app(max_upload_bytes: usize) -> Router {
+fn app(model: Shared, max_upload_bytes: usize) -> Router {
     Router::new()
+        .route("/", get(index))
         .route("/predict", post(predict))
         .layer(DefaultBodyLimit::max(max_upload_bytes))
+        .with_state(model)
 }
 
 fn config_path() -> PathBuf {
@@ -79,11 +99,12 @@ fn config_path() -> PathBuf {
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let cfg = Config::load(&config_path())?;
+    let model: Shared = Arc::new(Predictor::load(&cfg)?);
     let listener = tokio::net::TcpListener::bind(&cfg.server_bind)
         .await
         .map_err(|err| anyhow::anyhow!("failed to bind {}: {err}", cfg.server_bind))?;
     println!("server listening on {}", cfg.server_bind);
-    axum::serve(listener, app(cfg.max_upload_bytes)).await?;
+    axum::serve(listener, app(model, cfg.max_upload_bytes)).await?;
     Ok(())
 }
 
@@ -96,6 +117,18 @@ mod tests {
     use tokio::net::TcpStream;
 
     const TEST_UPLOAD_LIMIT: usize = 1 << 20;
+
+    struct StubModel;
+
+    impl Model for StubModel {
+        fn predict(&self, _image: &DynamicImage) -> Result<PredictionResponse, String> {
+            Ok(PredictionResponse {
+                verdict: "Good".to_string(),
+                score: 0.0,
+                threshold: 1.0,
+            })
+        }
+    }
 
     fn synthetic_png_bytes() -> Vec<u8> {
         let img = RgbImage::from_fn(16, 16, |x, y| Rgb([x as u8, y as u8, 128]));
@@ -113,7 +146,7 @@ mod tests {
             .expect("bind listener");
         let addr = listener.local_addr().expect("local addr");
         tokio::spawn(async move {
-            let _ = axum::serve(listener, app(TEST_UPLOAD_LIMIT)).await;
+            let _ = axum::serve(listener, app(Arc::new(StubModel), TEST_UPLOAD_LIMIT)).await;
         });
 
         let png = synthetic_png_bytes();
@@ -147,7 +180,7 @@ mod tests {
             .expect("read response");
 
         assert!(response.contains("200 OK"));
-        assert!(response.contains("{\"verdict\":\"Good\",\"score\":0.0}"));
+        assert!(response.contains("{\"verdict\":\"Good\",\"score\":0.0,\"threshold\":1.0}"));
     }
 
     #[tokio::test]
@@ -157,7 +190,7 @@ mod tests {
             .expect("bind listener");
         let addr = listener.local_addr().expect("local addr");
         tokio::spawn(async move {
-            let _ = axum::serve(listener, app(TEST_UPLOAD_LIMIT)).await;
+            let _ = axum::serve(listener, app(Arc::new(StubModel), TEST_UPLOAD_LIMIT)).await;
         });
 
         let boundary = "------------------------boundary456";

@@ -1,0 +1,17 @@
+[package]
+name = "cli"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "prometheus-x"
+path = "src/main.rs"
+
+[dependencies]
+analysis = { path = "../analysis" }
+anyhow = "1.0.105"
+clap = { version = "4.6.10", features = ["derive"] }
+config = { path = "../config" }
+data = { path = "../data" }
+detector = { path = "../detector" }
+features = { path = "../features" }
