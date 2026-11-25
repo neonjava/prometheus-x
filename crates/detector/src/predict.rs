@@ -1,9 +1,10 @@
 use std::path::Path;
+use std::sync::Arc;
 use std::time::Instant;
 
 use analysis::{area_percent, severity, Logistic, Severity, Shift, ShiftReference};
 use config::Config;
-use features::Extractor;
+use features::{Extractor, ImageFeatures};
 use image::DynamicImage;
 
 use crate::patch::{PatchBank, PatchScore};
@@ -60,7 +61,7 @@ pub struct ModelInfo {
 
 /// Loaded models: kept in memory between predictions.
 pub struct Predictor {
-    extractor: Extractor,
+    extractor: Arc<Extractor>,
     reference: Reference,
     bank: PatchBank,
     shift: ShiftReference,
@@ -70,20 +71,25 @@ pub struct Predictor {
     severity_med_max: f32,
 }
 
-struct Trace {
+/// Collects the step-by-step lines of one prediction.
+pub(crate) struct Trace {
     lines: Vec<LogLine>,
     last: Instant,
 }
 
 impl Trace {
-    fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             lines: Vec::new(),
             last: Instant::now(),
         }
     }
 
-    fn add(&mut self, message: String) {
+    pub(crate) fn into_lines(self) -> Vec<LogLine> {
+        self.lines
+    }
+
+    pub(crate) fn add(&mut self, message: String) {
         let now = Instant::now();
         let ms = now.duration_since(self.last).as_millis() as u64;
         self.last = now;
@@ -93,7 +99,11 @@ impl Trace {
 
 impl Predictor {
     pub fn load(cfg: &Config) -> Result<Self, DetectorError> {
-        let extractor = Extractor::load(cfg)?;
+        Self::load_shared(cfg, Arc::new(Extractor::load(cfg)?))
+    }
+
+    /// Like `load`, but reuses an extractor so many products share one ResNet.
+    pub fn load_shared(cfg: &Config, extractor: Arc<Extractor>) -> Result<Self, DetectorError> {
         let bank = PatchBank::load(&cfg.patch_bank_path, extractor.device())?;
         let reference = Reference::load(&cfg.good_vectors_path)?;
         Ok(Self {
@@ -129,8 +139,22 @@ impl Predictor {
         image: &DynamicImage,
         always_step2: bool,
     ) -> Result<Prediction, DetectorError> {
-        let mut trace = Trace::new();
+        let trace = Trace::new();
         let features = self.extractor.extract_all(image)?;
+        self.judge(&features, always_step2, trace)
+    }
+
+    /// Distance from a global vector to this product's nearest good photo.
+    pub(crate) fn distance(&self, vector: &[f32]) -> Result<f32, DetectorError> {
+        global_score(vector, &self.reference.vectors)
+    }
+
+    pub(crate) fn judge(
+        &self,
+        features: &ImageFeatures,
+        always_step2: bool,
+        mut trace: Trace,
+    ) -> Result<Prediction, DetectorError> {
         trace.add(format!(
             "Features extracted: {}-dim vector, {}x{} patches",
             features.global.len(),

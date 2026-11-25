@@ -1,8 +1,8 @@
 import {
-  csvUrl, deleteBatch, getBatch, getBatches, getItem, imageUrl, saveDecision, startBatch, thumbUrl,
+  csvUrl, deleteBatch, getBatch, getBatches, getStatus, getItem, imageUrl, saveDecision, startBatch, thumbUrl,
 } from '../api.js';
 import {
-  bindDropzone, category, CATEGORY_LABEL, CATEGORY_TAG, confirmSheet, Console, esc, formatBytes,
+  bindDropzone, category, CATEGORY_LABEL, CATEGORY_TAG, confirmSheet, Console, esc, fillProducts, formatBytes,
   formatDuration, formatTime, icon, resultHtml, reviewBox, SEVERITY_TAG, toast,
 } from '../ui.js';
 import { mountHeatView } from '../heatview.js';
@@ -25,6 +25,7 @@ const TILES = [
   ['review', 'Needs review', 'review'],
   ['defect', 'Defect', 'defect'],
   ['shift', 'Shift warnings', 'shift'],
+  ['unknown', 'Unknown product', ''],
   ['error', 'Errors', ''],
 ];
 
@@ -48,7 +49,7 @@ function urgency(item) {
   const cat = category(item);
   if (cat === 'defect') return RANK_DEFECT + (SEVERITY_RANK[item.severity] ?? 0) * 100 + (item.defect_probability ?? 0) * 10;
   if (cat === 'review') return RANK_REVIEW + (item.patch_score ?? item.global_score ?? 0);
-  if (cat === 'error') return RANK_ERROR;
+  if (cat === 'error' || cat === 'unknown') return RANK_ERROR;
   return item.patch_score ?? item.global_score ?? 0;
 }
 
@@ -79,6 +80,7 @@ export function mountBatch(root) {
 
     <div class="card" id="intake">
       <div class="section-label">Add images</div>
+      <select class="field product-pick" id="product" aria-label="Product"><option value="auto">Auto-detect product</option></select>
       <div class="dropzone" id="zone">${icon('upload')}<b>Drop a zip or many photos here</b><small id="picked">or click to choose files</small></div>
       <input class="hidden-input" type="file" id="input" accept=".zip,image/*" multiple>
       <label class="check-row"><input type="checkbox" id="replace-old"> Remove earlier finished batches once this one is uploaded</label>
@@ -130,6 +132,7 @@ export function mountBatch(root) {
     $('#start').disabled = false;
   }
   bindDropzone($('#zone'), $('#input'), setFiles);
+  getStatus().then((s) => fillProducts($('#product'), s.products)).catch(() => {});
 
   function showError(message) {
     $('#error').textContent = message;
@@ -146,7 +149,7 @@ export function mountBatch(root) {
         $('#bar').style.width = `${Math.round(fraction * 100)}%`;
         $('#progress-left').textContent = `Uploading ${Math.round(fraction * 100)}%`;
         $('#progress-right').textContent = '';
-      });
+      }, $('#product').value);
       const replace = $('#replace-old').checked;
       follow(id, true);
       if (replace) await removeOld(id);
@@ -345,7 +348,7 @@ export function mountBatch(root) {
   }
 
   function counts() {
-    const c = { all: activeBatch.total || activeBatch.items.length, ok: 0, review: 0, defect: 0, shift: 0, error: 0 };
+    const c = { all: activeBatch.total || activeBatch.items.length, ok: 0, review: 0, defect: 0, shift: 0, unknown: 0, error: 0 };
     for (const item of activeBatch.items) {
       c[category(item)] += 1;
       if (item.shift_warning) c.shift += 1;
@@ -391,7 +394,7 @@ export function mountBatch(root) {
         <span class="pick" data-pick title="Select">${icon('check')}</span>
       </div>
       <div class="name" title="${esc(item.name)}">${esc(item.name)}</div>
-      <div class="meta"><span>${score == null ? '' : `score ${score.toFixed(2)}`}</span>${right}</div>
+      <div class="meta"><span>${esc(item.product ?? '')}${score == null ? '' : ` · ${score.toFixed(2)}`}</span>${right}</div>
     </div>`;
   }
 

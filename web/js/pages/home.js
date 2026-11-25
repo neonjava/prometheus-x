@@ -47,6 +47,7 @@ export async function mountHome(root) {
         <h1 class="big">Inspection desk</h1>
         <p class="sub">Trained on good images only, so it can spot defects it has never seen.</p>
         <div class="figures">
+          ${figure('Products', 'f-products')}
           ${figure('Good images learned', 'f-good')}
           ${figure('Patch memory', 'f-patch')}
           ${figure('Waiting for review', 'f-waiting')}
@@ -87,6 +88,7 @@ export async function mountHome(root) {
       el.textContent = formatNumber(value);
       el.classList.remove('placeholder');
     };
+    set('f-products', s.products.length);
     set('f-good', s.good_vectors);
     set('f-patch', s.patch_rows);
     set('f-waiting', s.waiting_for_review ?? 0);

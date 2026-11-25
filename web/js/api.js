@@ -22,8 +22,9 @@ export const thumbUrl = (id, name) => `/batch/${encodeURIComponent(id)}/thumb/${
 export const imageUrl = (id, name) => `/batch/${encodeURIComponent(id)}/image/${encodeURIComponent(name)}`;
 export const csvUrl = (id) => `/batch/${encodeURIComponent(id)}/export.csv`;
 
-export function predictImage(file) {
+export function predictImage(file, product) {
   const data = new FormData();
+  data.append('product', product);
   data.append('image', file);
   return fetch('/predict', { method: 'POST', body: data }).then(parse);
 }
@@ -38,9 +39,10 @@ export async function saveDecision(image, verdict, decision) {
 }
 
 // XMLHttpRequest instead of fetch so a big zip can show upload progress.
-export function startBatch(files, onProgress) {
+export function startBatch(files, onProgress, product) {
   return new Promise((resolve, reject) => {
     const data = new FormData();
+    data.append('product', product);
     for (const file of files) data.append('image', file, file.name);
     const xhr = new XMLHttpRequest();
     xhr.open('POST', '/batch');

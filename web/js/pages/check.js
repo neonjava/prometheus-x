@@ -1,6 +1,6 @@
-import { predictImage, saveDecision } from '../api.js';
+import { getStatus, predictImage, saveDecision } from '../api.js';
 import {
-  bindDropzone, Console, esc, icon, resultHtml, reviewBox, toast, VERDICT_CLASS,
+  bindDropzone, Console, esc, fillProducts, icon, resultHtml, reviewBox, toast, VERDICT_CLASS,
 } from '../ui.js';
 import { mountHeatView } from '../heatview.js';
 
@@ -11,6 +11,7 @@ export function mountCheck(root) {
       <div style="display:grid;gap:1.6rem">
         <div class="card">
           <div class="section-label">Add image</div>
+          <select class="field product-pick" id="product" aria-label="Product"><option value="auto">Auto-detect product</option></select>
           <div class="dropzone" id="zone">${icon('upload')}<b id="zone-text">Click or drop a product photo here</b><small>JPG, PNG, BMP or WebP</small></div>
           <input class="hidden-input" type="file" id="input" accept="image/*">
           <button class="btn primary block" id="go" style="margin-top:.9rem" disabled>Check image</button>
@@ -42,6 +43,7 @@ export function mountCheck(root) {
   }
 
   bindDropzone($('#zone'), $('#input'), selectFile);
+  getStatus().then((s) => fillProducts($('#product'), s.products)).catch(() => {});
 
   function showResult(r) {
     state.result = r;
@@ -60,7 +62,7 @@ export function mountCheck(root) {
     $('#go').disabled = true;
     $('#go').textContent = 'Checking…';
     try {
-      const result = await predictImage(state.file);
+      const result = await predictImage(state.file, $('#product').value);
       await out.replay(result);
       showResult(result);
     } catch (err) {

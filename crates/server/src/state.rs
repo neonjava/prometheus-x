@@ -2,25 +2,31 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use axum::http::StatusCode;
-use detector::{ModelInfo, Prediction, Predictor};
+use detector::{Catalog, ModelInfo, Outcome};
 use image::DynamicImage;
 
 use crate::batch::Batches;
 
 /// Anything that can judge an image; lets tests run without model weights.
 pub trait Model: Send + Sync + 'static {
-    fn predict(&self, image: &DynamicImage) -> Result<Prediction, String>;
-    fn info(&self) -> ModelInfo;
+    /// `product` is None to detect the product from the photo.
+    fn predict(&self, image: &DynamicImage, product: Option<&str>) -> Result<Outcome, String>;
+    fn products(&self) -> Vec<(String, ModelInfo)>;
 }
 
-impl Model for Predictor {
-    fn predict(&self, image: &DynamicImage) -> Result<Prediction, String> {
-        Predictor::predict(self, image).map_err(|e| e.to_string())
+impl Model for Catalog {
+    fn predict(&self, image: &DynamicImage, product: Option<&str>) -> Result<Outcome, String> {
+        Catalog::predict(self, image, product).map_err(|e| e.to_string())
     }
 
-    fn info(&self) -> ModelInfo {
-        Predictor::info(self)
+    fn products(&self) -> Vec<(String, ModelInfo)> {
+        Catalog::products(self)
     }
+}
+
+/// The form value "auto" or nothing means: detect the product.
+pub fn product_choice(text: String) -> Option<String> {
+    Some(text).filter(|name| !name.is_empty() && name != "auto")
 }
 
 pub struct AppState {
@@ -58,7 +64,7 @@ pub fn internal(message: impl std::fmt::Display) -> ApiError {
 #[cfg(test)]
 pub mod testing {
     use analysis::{Severity, Shift};
-    use detector::{Finding, LogLine, ModelResult, Verdict};
+    use detector::{Finding, LogLine, ModelResult, Prediction, Verdict};
 
     use super::*;
 
@@ -66,13 +72,13 @@ pub mod testing {
     pub struct StubModel;
 
     impl Model for StubModel {
-        fn predict(&self, _image: &DynamicImage) -> Result<Prediction, String> {
+        fn predict(&self, _image: &DynamicImage, product: Option<&str>) -> Result<Outcome, String> {
             let model = ModelResult {
                 score: 7.0,
                 threshold: 5.0,
                 vote: Verdict::Defect,
             };
-            Ok(Prediction {
+            let prediction = Prediction {
                 verdict: Verdict::Defect,
                 needs_review: false,
                 global: model,
@@ -93,16 +99,21 @@ pub mod testing {
                     message: "stub step".to_string(),
                     ms: 1,
                 }],
+            };
+            Ok(Outcome::Judged {
+                product: product.unwrap_or("stub").to_string(),
+                prediction,
             })
         }
 
-        fn info(&self) -> ModelInfo {
-            ModelInfo {
+        fn products(&self) -> Vec<(String, ModelInfo)> {
+            let info = ModelInfo {
                 good_vectors: 3,
                 patch_rows: 4,
                 global_threshold: 5.0,
                 patch_threshold: 6.0,
-            }
+            };
+            vec![("stub".to_string(), info)]
         }
     }
 }

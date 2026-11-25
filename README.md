@@ -42,8 +42,12 @@ Every path, size and threshold is in [`config.toml`](config.toml). Use `--config
 | `severity_low_max`, `severity_med_max` | edges of the Low / Medium / High severity buckets |
 | `server_bind`, `max_upload_bytes`, `decisions_path`, `web_dir` | server address, single-image upload limit, where review decisions are saved, folder with the page files |
 | `batches_dir`, `max_batch_bytes`, `max_unpacked_bytes`, `max_batch_files`, `batch_workers`, `thumb_size` | where batches are kept, upload and zip-unpack limits, file cap, images checked at once, thumbnail size |
+| `products_dir`, `default_product`, `unknown_ratio` | trained products folder, name of the main model, how far a photo may be before it is unknown |
 | `min_mean_brightness` | images darker than this (0-255) are reported as errors, such as dataset mask files |
 | `robustness_sample`, `[[perturbations]]` | images per class and the photo changes used by `robustness` |
+
+## Several products
+Each product has its own model; one ResNet is shared. Train a product by pointing a copy of `config.toml` at its `train_dir`, `val_dir`, `test_dir` and at `good_vectors_path` / `patch_bank_path` inside `models/products/<name>/`, then run `build` with `--config`. The server loads every trained folder in `products_dir`, detects the product from the photo (or uses the one picked on the page) and answers "unknown product" when a photo is more than `unknown_ratio` times the closest product's limit.
 
 ## The web page
 Open http://127.0.0.1:8080. Five pages, in a soft white and green style with falling leaves:

@@ -1,4 +1,4 @@
-use detector::{LogLine, ModelResult, Prediction};
+use detector::{LogLine, ModelResult, Outcome, Prediction};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -32,6 +32,8 @@ pub struct LogResponse {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct PredictionResponse {
+    /// Product the photo was judged as, or the closest one when unknown.
+    pub product: Option<String>,
     pub verdict: String,
     pub needs_review: bool,
     pub global: ModelResponse,
@@ -63,6 +65,7 @@ impl From<LogLine> for LogResponse {
 impl From<Prediction> for PredictionResponse {
     fn from(p: Prediction) -> Self {
         Self {
+            product: None,
             verdict: p.verdict.to_string(),
             needs_review: p.needs_review,
             global: p.global.into(),
@@ -80,6 +83,45 @@ impl From<Prediction> for PredictionResponse {
                 warning: p.shift.warning,
             },
             log: p.log.into_iter().map(Into::into).collect(),
+        }
+    }
+}
+
+const UNKNOWN: &str = "Unknown";
+
+impl From<Outcome> for PredictionResponse {
+    fn from(outcome: Outcome) -> Self {
+        match outcome {
+            Outcome::Judged {
+                product,
+                prediction,
+            } => Self {
+                product: Some(product),
+                ..prediction.into()
+            },
+            Outcome::Unknown {
+                closest,
+                score,
+                threshold,
+                log,
+            } => Self {
+                product: Some(closest),
+                verdict: UNKNOWN.to_string(),
+                needs_review: false,
+                global: ModelResponse {
+                    score,
+                    threshold,
+                    vote: UNKNOWN.to_string(),
+                },
+                patch: None,
+                finding: None,
+                shift: ShiftResponse {
+                    distance: 0.0,
+                    limit: 0.0,
+                    warning: false,
+                },
+                log: log.into_iter().map(Into::into).collect(),
+            },
         }
     }
 }

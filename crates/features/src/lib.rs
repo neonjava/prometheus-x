@@ -194,6 +194,9 @@ mod tests {
             batch_workers: 1,
             thumb_size: 1,
             min_mean_brightness: 0.0,
+            products_dir: PathBuf::new(),
+            default_product: String::new(),
+            unknown_ratio: 2.0,
             robustness_sample: 1,
             perturbations: Vec::new(),
         }
