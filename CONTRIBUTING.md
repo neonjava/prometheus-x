@@ -3,10 +3,10 @@
 AI-written code is allowed. AI slop is not. You must understand every line you submit and be able to explain it in review.
 
 ## Roles
-- neonjava: tech lead, core (features, detector, integration). Reviews and merges every PR.
+- neonjava: tech lead, core (features, detector, integration), docs (slides, README). Reviews and merges every PR.
 - megha: analysis and evaluation
 - rakshitha: data and CLI
-- ruthwin: server, web, slides
+- ruthwin: server, web
 
 ## Workflow
 - `main` is protected: PR required, 1 approval from neonjava, CI must pass, no direct push, squash merge only. Branches are deleted after merge.
