@@ -111,7 +111,7 @@ export async function mountReview(root) {
   waitingBody.addEventListener('click', async (e) => {
     const link = e.target.closest('[data-open-batch]');
     if (link) {
-      try { localStorage.setItem('px-last-batch', link.dataset.openBatch); } catch {}
+      try { localStorage.setItem('px-last-batch', link.dataset.openBatch); } catch { /* storage can be blocked */ }
       return;
     }
     const button = e.target.closest('[data-action]');
@@ -136,7 +136,7 @@ export async function mountReview(root) {
       paintDecided();
     } catch (err) {
       button.disabled = false;
-      toast(`Error: ${err.message}`);
+      toast(`Could not save: ${err.message}`, 'error');
     }
   });
 

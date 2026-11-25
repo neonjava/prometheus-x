@@ -168,60 +168,49 @@ impl Batches {
         job.total.store(records.len(), Ordering::Relaxed);
         job.done.store(records.len(), Ordering::Relaxed);
         *job.records.lock().ok()? = records;
-        Some(Arc::new(job))
+        let job = Arc::new(job);
+        // Parse each finished batch once; the status poll asks for all of them.
+        self.jobs.lock().ok()?.insert(id.to_string(), job.clone());
+        Some(job)
     }
 
     /// All known batches from memory and disk, newest first.
     pub fn list(&self) -> Vec<BatchListItem> {
-        let entries = match fs::read_dir(&self.settings.dir) {
-            Ok(iter) => iter.filter_map(Result::ok).collect::<Vec<_>>(),
-            Err(_) => return Vec::new(),
-        };
-
-        let mut items = Vec::new();
-        for entry in entries {
-            let file_name = entry.file_name();
-            let id = match file_name.to_str() {
-                Some(s) if valid_id(s) => s.to_string(),
-                _ => continue,
-            };
-
-            let time = id
-                .split('-')
-                .next()
-                .and_then(|h| u64::from_str_radix(h, 16).ok())
-                .unwrap_or(0);
-
-            if let Some(job) = self.jobs.lock().ok().and_then(|j| j.get(&id).cloned()) {
-                let status = job
-                    .status
-                    .lock()
-                    .map(|s| s.clone())
-                    .unwrap_or_else(|_| "running".to_string());
-                let total = job.total.load(Ordering::Relaxed);
-                let done = job.done.load(Ordering::Relaxed);
-                let records = job.records.lock().map(|r| r.clone()).unwrap_or_default();
-                let counts = compute_counts(total, done, &records);
-                items.push(BatchListItem {
-                    id,
-                    time,
-                    status,
-                    counts,
-                });
-            } else {
-                let records =
-                    read_records(&self.batch_dir(&id).join(RESULTS_FILE)).unwrap_or_default();
-                let counts = compute_counts(records.len(), records.len(), &records);
-                items.push(BatchListItem {
-                    id,
-                    time,
-                    status: "done".to_string(),
-                    counts,
-                });
-            }
-        }
+        let mut items: Vec<BatchListItem> = self
+            .ids()
+            .iter()
+            .filter_map(|id| self.describe(id))
+            .collect();
         items.sort_by_key(|a| std::cmp::Reverse(a.time));
         items
+    }
+
+    fn ids(&self) -> Vec<String> {
+        let Ok(entries) = fs::read_dir(&self.settings.dir) else {
+            return Vec::new();
+        };
+        entries
+            .filter_map(Result::ok)
+            .filter_map(|entry| entry.file_name().into_string().ok())
+            .filter(|id| valid_id(id))
+            .collect()
+    }
+
+    // A folder that is still uploading has no job and no results yet, so it is skipped.
+    fn describe(&self, id: &str) -> Option<BatchListItem> {
+        let job = self.job(id)?;
+        let status = job.status.lock().ok()?.clone();
+        let records = job.records.lock().ok()?;
+        Some(BatchListItem {
+            id: id.to_string(),
+            time: created_at(id),
+            status,
+            counts: compute_counts(
+                job.total.load(Ordering::Relaxed),
+                job.done.load(Ordering::Relaxed),
+                &records,
+            ),
+        })
     }
 
     /// Photos that need human review and have no saved decision yet.
@@ -230,47 +219,47 @@ impl Batches {
         decided_keys: &std::collections::HashSet<String>,
     ) -> Vec<PendingItem> {
         let mut pending = Vec::new();
-        for batch in self.list() {
-            let records = if let Some(job) = self
-                .jobs
-                .lock()
-                .ok()
-                .and_then(|j| j.get(&batch.id).cloned())
-            {
-                job.records.lock().map(|r| r.clone()).unwrap_or_default()
-            } else {
-                read_records(&self.batch_dir(&batch.id).join(RESULTS_FILE)).unwrap_or_default()
+        for id in self.ids() {
+            let Some(job) = self.job(&id) else { continue };
+            let Ok(records) = job.records.lock() else {
+                continue;
             };
-
-            for r in records {
-                if let Some(resp) = r.response {
-                    if resp.needs_review {
-                        let key = format!("{}/{}", batch.id, r.name);
-                        if !decided_keys.contains(&key) {
-                            pending.push(PendingItem {
-                                batch_id: batch.id.clone(),
-                                batch_name: batch.id.clone(),
-                                image: key,
-                                name: r.name.clone(),
-                                verdict: resp.verdict.clone(),
-                                thumb_url: format!("/batch/{}/thumb/{}", batch.id, r.name),
-                                time_unix: batch.time,
-                                global_score: Some(resp.global.score),
-                                patch_score: resp.patch.as_ref().map(|p| p.score),
-                                severity: resp.finding.as_ref().map(|f| f.severity.to_string()),
-                                defect_probability: resp
-                                    .finding
-                                    .as_ref()
-                                    .map(|f| f.defect_probability),
-                            });
-                        }
-                    }
-                }
-            }
+            pending.extend(
+                records
+                    .iter()
+                    .filter_map(|record| pending_item(&id, record))
+                    .filter(|item| !decided_keys.contains(&item.image)),
+            );
         }
         pending.sort_by_key(|a| std::cmp::Reverse(a.time_unix));
         pending
     }
+}
+
+/// Batch ids start with the creation time in hex seconds.
+fn created_at(id: &str) -> u64 {
+    id.split('-')
+        .next()
+        .and_then(|hex| u64::from_str_radix(hex, 16).ok())
+        .unwrap_or(0)
+}
+
+fn pending_item(batch_id: &str, record: &Record) -> Option<PendingItem> {
+    let response = record.response.as_ref().filter(|r| r.needs_review)?;
+    let finding = response.finding.as_ref();
+    Some(PendingItem {
+        batch_id: batch_id.to_string(),
+        batch_name: batch_id.to_string(),
+        image: format!("{batch_id}/{}", record.name),
+        name: record.name.clone(),
+        verdict: response.verdict.clone(),
+        thumb_url: format!("/batch/{batch_id}/thumb/{}", record.name),
+        time_unix: created_at(batch_id),
+        global_score: Some(response.global.score),
+        patch_score: response.patch.as_ref().map(|p| p.score),
+        severity: finding.map(|f| f.severity.clone()),
+        defect_probability: finding.map(|f| f.defect_probability),
+    })
 }
 
 fn compute_counts(total: usize, done: usize, records: &[Record]) -> BatchCounts {

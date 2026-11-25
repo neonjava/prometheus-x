@@ -32,7 +32,7 @@ const store = {
     try { return localStorage.getItem(SAVE_KEY); } catch { return null; }
   },
   set(id) {
-    try { localStorage.setItem(SAVE_KEY, id); } catch {}
+    try { localStorage.setItem(SAVE_KEY, id); } catch { /* storage can be blocked; resuming is optional */ }
   },
 };
 
@@ -295,105 +295,100 @@ export function mountBatch(root) {
       .sort(SORTS[activeBatch.sort]);
   }
 
-  function paintTiles() {
-    const counts = { all: activeBatch.items.length, ok: 0, review: 0, defect: 0, shift: 0, error: 0 };
+  function counts() {
+    const c = { all: activeBatch.total || activeBatch.items.length, ok: 0, review: 0, defect: 0, shift: 0, error: 0 };
     for (const item of activeBatch.items) {
-      const cat = category(item);
-      if (cat in counts) counts[cat] += 1;
-      if (item.shift_warning) counts.shift += 1;
+      c[category(item)] += 1;
+      if (item.shift_warning) c.shift += 1;
     }
+    return c;
+  }
+
+  function paintTiles(c) {
     $('#tiles').innerHTML = TILES.map(
-      ([key, label, tag]) => `<div class="tile ${tag} ${activeBatch.filter === key ? 'active' : ''}" data-filter="${key}">
-        <b>${counts[key]}</b><small>${label}</small></div>`,
+      ([key, label, tone]) => `<button class="tile ${tone}" data-filter="${key}" aria-pressed="${activeBatch.filter === key}">
+        <div class="label"><i></i>${label}</div><div class="value">${c[key]}</div></button>`,
     ).join('');
   }
 
-  function paintAlerts() {
-    const alerts = [];
-    const n = activeBatch.items.length;
-    if (n >= MIN_FOR_BANNERS) {
-      const defects = activeBatch.items.filter((i) => category(i) === 'defect').length;
-      if (defects / n >= DEFECT_BANNER_RATE) {
-        alerts.push(`<div class="notice danger">${icon('alert')}<b>High defect rate:</b> ${Math.round((defects / n) * 100)}% of checked images are defective. Stop the line.</div>`);
-      }
-      const shifts = activeBatch.items.filter((i) => i.shift_warning).length;
-      if (shifts / n >= SHIFT_BANNER_RATE) {
-        alerts.push(`<div class="notice warn">${icon('alert')}<b>Camera or lighting shift:</b> ${shifts} of ${n} images triggered shift warnings. Check the test jig.</div>`);
-      }
+  function paintAlerts(c) {
+    const judged = c.ok + c.review + c.defect;
+    let html = '';
+    if (judged >= MIN_FOR_BANNERS && c.defect / judged >= DEFECT_BANNER_RATE) {
+      html += `<div class="notice danger">High defect rate: ${Math.round((100 * c.defect) / judged)}% of this batch is defective. Check the line before continuing.</div>`;
     }
-    $('#alerts').innerHTML = alerts.join('');
+    if (judged >= MIN_FOR_BANNERS && c.shift / judged >= SHIFT_BANNER_RATE) {
+      html += `<div class="notice">Many photos look different from the training images (${c.shift} of ${judged}). Lighting or camera may have changed for this batch.</div>`;
+    }
+    $('#alerts').innerHTML = html;
   }
 
   function cardHtml(item) {
     const cat = category(item);
-    const tagClass = CATEGORY_TAG[cat] ?? '';
-    const label = CATEGORY_LABEL[cat] ?? cat;
-    const isSelected = activeBatch.selected.has(item.name);
-    const decidedAs = activeBatch.decided.get(item.name);
-    const scoreText = item.patch_score != null ? `patch ${item.patch_score.toFixed(2)}`
-      : item.global_score != null ? `score ${item.global_score.toFixed(2)}`
-      : item.error ?? '';
-
-    return `<div class="pcard ${cat} ${isSelected ? 'selected' : ''}" data-name="${esc(item.name)}">
-      <input type="checkbox" class="card-check" ${isSelected ? 'checked' : ''} aria-label="Select ${esc(item.name)}">
-      <div class="thumb-wrap">
-        <img class="thumb" loading="lazy" src="${thumbUrl(activeBatch.id, item.name)}" alt="${esc(item.name)}"
-             onerror="this.style.opacity=.2">
-        <span class="tag pill ${tagClass}">${label}</span>
+    const decided = activeBatch.decided.get(decisionKey(item.name));
+    const score = item.patch_score ?? item.global_score;
+    const right = decided
+      ? `<span class="tag ok">Reviewed: ${esc(decided)}</span>`
+      : item.severity
+        ? `<span class="tag ${SEVERITY_TAG[item.severity]}">${esc(item.severity)}</span>`
+        : '';
+    const picture = cat === 'error'
+      ? `<div class="err-text">${esc(item.error ?? 'Could not check this image')}</div>`
+      : `<img loading="lazy" alt="" src="${thumbUrl(activeBatch.id, item.name)}">`;
+    return `<div class="thumb-card ${cat} ${activeBatch.selected.has(item.name) ? 'selected' : ''}" role="button" tabindex="0" data-name="${esc(item.name)}">
+      <div class="img">${picture}
+        <span class="badge tag ${CATEGORY_TAG[cat]}">${CATEGORY_LABEL[cat]}</span>
+        ${item.shift_warning ? '<span class="shift-dot" title="Lighting or camera may have changed"></span>' : ''}
+        <span class="pick" data-pick title="Select">${icon('check')}</span>
       </div>
-      <div class="pbody">
-        <b class="name" title="${esc(item.name)}">${esc(item.name)}</b>
-        <div class="meta">
-          <small class="score">${esc(scoreText)}</small>
-          ${item.severity ? `<span class="tag ${SEVERITY_TAG[item.severity] ?? ''}">${item.severity}</span>` : ''}
-          ${item.shift_warning ? `<span class="tag warn">shift</span>` : ''}
-          ${decidedAs ? `<span class="tag">${decidedAs}</span>` : ''}
-        </div>
-      </div>
+      <div class="name" title="${esc(item.name)}">${esc(item.name)}</div>
+      <div class="meta"><span>${score == null ? '' : `score ${score.toFixed(2)}`}</span>${right}</div>
     </div>`;
   }
 
   function paintCards() {
     const list = visibleItems();
-    const visible = list.slice(0, activeBatch.shown);
-    $('#cards').innerHTML = visible.length
-      ? visible.map(cardHtml).join('')
-      : `<div class="empty">No images match this filter.</div>`;
-    $('#more').hidden = visible.length >= list.length;
-    $('#more').textContent = `Show more (${list.length - visible.length} left)`;
+    if (!list.length) {
+      $('#cards').innerHTML = `<div class="empty" style="grid-column:1/-1">${activeBatch.items.length ? 'Nothing matches these filters.' : 'Waiting for the first results…'}</div>`;
+      $('#more').hidden = true;
+      return;
+    }
+    $('#cards').innerHTML = list.slice(0, activeBatch.shown).map(cardHtml).join('');
+    $('#more').hidden = list.length <= activeBatch.shown;
+    $('#more').textContent = `Show more (${list.length - activeBatch.shown} left)`;
   }
 
   function paintBulk() {
-    const count = activeBatch.selected.size;
-    const bar = $('#bulk');
-    if (!count) {
-      bar.innerHTML = '';
-      return;
-    }
-    bar.innerHTML = `<div class="bulk-bar">
-      <span><b>${count}</b> selected</span>
-      <button class="btn sm ok" data-bulk="ok">Mark OK</button>
-      <button class="btn sm danger" data-bulk="reject">Reject</button>
-      <button class="btn sm warn" data-bulk="fix">Fix</button>
-      <button class="btn sm" data-bulk="clear">Clear</button>
-    </div>`;
+    const n = activeBatch.selected.size;
+    $('#bulk').innerHTML = n
+      ? `<div class="bulkbar"><b>${n} selected</b>
+          <button class="btn sm" data-bulk="ok">OK</button><button class="btn sm" data-bulk="reject">Reject</button>
+          <button class="btn sm" data-bulk="fix">Fix</button><button class="btn sm" data-bulk="clear">${icon('x')} Clear</button></div>`
+      : '';
   }
 
+  // Results arrive while the batch runs; repaint at most once per frame.
+  let queued = false;
   function paintAll() {
-    paintTiles();
-    paintAlerts();
-    paintCards();
-    paintBulk();
+    if (queued) return;
+    queued = true;
+    requestAnimationFrame(() => {
+      queued = false;
+      const c = counts();
+      paintTiles(c);
+      paintAlerts(c);
+      paintCards();
+      paintBulk();
+    });
   }
 
   $('#tiles').addEventListener('click', (e) => {
     const tile = e.target.closest('[data-filter]');
     if (!tile) return;
-    activeBatch.filter = tile.dataset.filter;
+    activeBatch.filter = activeBatch.filter === tile.dataset.filter ? 'all' : tile.dataset.filter;
     activeBatch.shown = CHUNK;
     paintAll();
   });
-
   $('#query').addEventListener('input', (e) => {
     activeBatch.query = e.target.value;
     activeBatch.shown = CHUNK;
@@ -423,19 +418,30 @@ export function mountBatch(root) {
     paintAll();
   });
 
+  function toggleSelect(name) {
+    if (activeBatch.selected.has(name)) activeBatch.selected.delete(name);
+    else activeBatch.selected.add(name);
+    paintAll();
+  }
+
   $('#cards').addEventListener('click', (e) => {
-    const check = e.target.closest('.card-check');
-    const card = e.target.closest('.pcard');
+    const card = e.target.closest('.thumb-card');
     if (!card) return;
-    const { name } = card.dataset;
-    if (check || e.shiftKey) {
-      if (activeBatch.selected.has(name)) activeBatch.selected.delete(name);
-      else activeBatch.selected.add(name);
-      paintAll();
-      return;
-    }
-    openDrawer(name);
+    if (e.target.closest('[data-pick]')) toggleSelect(card.dataset.name);
+    else openDrawer(card.dataset.name);
   });
+  $('#cards').addEventListener('keydown', (e) => {
+    const card = e.target.closest('.thumb-card');
+    if (card && (e.key === 'Enter' || e.key === ' ')) {
+      e.preventDefault();
+      openDrawer(card.dataset.name);
+    }
+  });
+
+  // Two batches can hold files with the same name, so decisions are keyed by batch too.
+  function decisionKey(name) {
+    return `${activeBatch.id}/${name}`;
+  }
 
   async function decide(names, decision) {
     let failed = 0;
@@ -445,14 +451,14 @@ export function mountBatch(root) {
       await Promise.all(chunk.map(async (name) => {
         const item = activeBatch.items.find((i) => i.name === name);
         try {
-          await saveDecision(`${activeBatch.id}/${name}`, item?.verdict ?? 'Uncertain', decision);
-          activeBatch.decided.set(name, decision);
+          await saveDecision(decisionKey(name), item?.verdict ?? 'Uncertain', decision);
+          activeBatch.decided.set(decisionKey(name), decision);
         } catch {
           failed += 1;
         }
       }));
     }
-    if (failed) toast(`Saved ${decision.toUpperCase()}, but ${failed} failed`);
+    if (failed) toast(`Saved ${decision.toUpperCase()}, but ${failed} failed`, 'error');
     else toast(`Marked ${decision.toUpperCase()} for ${names.length} image${names.length === 1 ? '' : 's'}`);
     paintAll();
     return failed === 0;
@@ -555,6 +561,7 @@ export function mountBatch(root) {
     const paint = () => drawHeat(left.querySelector('#d-heat'), left.querySelector('#d-img'), r.finding,
       r.patch ? r.patch.threshold : 0, d.heatOn);
     left.querySelector('#d-img').addEventListener('load', paint);
+    window.removeEventListener('resize', d.onResize);
     d.onResize = paint;
     window.addEventListener('resize', paint);
     const toggle = left.querySelector('#d-heat-on');
@@ -568,7 +575,7 @@ export function mountBatch(root) {
   }
 
   // Auto-resume last active batch if present.
-  const resumeId = activeBatch.id || store.get();
+  const resumeId = store.get() || activeBatch.id;
   if (resumeId) {
     follow(resumeId, false);
   } else {

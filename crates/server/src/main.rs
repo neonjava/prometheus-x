@@ -496,7 +496,7 @@ mod tests {
 
     #[tokio::test]
     async fn batches_and_pending_reviews_are_served() {
-        let (addr, _) = start("f").await;
+        let (addr, _) = start("g").await;
         let batches_resp = send(addr, "GET", "/batches", "application/json", b"").await;
         assert!(batches_resp.contains("200 OK"));
         assert!(batches_resp.contains("[]"));
