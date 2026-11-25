@@ -16,6 +16,7 @@ use serde::{Deserialize, Serialize};
 const INDEX_HTML: &str = include_str!("../../../web/index.html");
 const STYLE_CSS: &str = include_str!("../../../web/style.css");
 const APP_JS: &str = include_str!("../../../web/app.js");
+const LEAVES_JS: &str = include_str!("../../../web/leaves.js");
 const DECISIONS: [&str; 3] = ["ok", "reject", "fix"];
 
 #[derive(Debug, Serialize, Deserialize, PartialEq)]
@@ -140,6 +141,10 @@ async fn script() -> impl IntoResponse {
     ([(header::CONTENT_TYPE, "text/javascript")], APP_JS)
 }
 
+async fn leaves() -> impl IntoResponse {
+    ([(header::CONTENT_TYPE, "text/javascript")], LEAVES_JS)
+}
+
 async fn read_image_field(mut multipart: Multipart) -> Result<(String, Vec<u8>), ApiError> {
     while let Some(field) = multipart
         .next_field()
@@ -247,6 +252,7 @@ fn app(state: Shared, max_upload_bytes: usize) -> Router {
         .route("/", get(index))
         .route("/style.css", get(style))
         .route("/app.js", get(script))
+        .route("/leaves.js", get(leaves))
         .route("/predict", post(predict))
         .route("/decision", post(decision))
         .layer(DefaultBodyLimit::max(max_upload_bytes))
