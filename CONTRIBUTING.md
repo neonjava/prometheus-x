@@ -32,3 +32,37 @@ You do not need Rust installed. GitHub Actions runs everything on every PR:
 - `ci`: `cargo fmt --check`, clippy (`-D warnings`, plus unwrap/expect denied outside tests), build, test.
 - The build uploads the release binaries as a PR artifact so neonjava can download and run them.
 - Pushing a tag `v*` builds a release and publishes the binaries to a GitHub Release.
+
+## Code structure
+Cargo workspace. One crate = one job. Dependencies only point down this list:
+
+```
+config      Config struct, Config::load(path) -> Result<Config>   (neonjava)
+features    ResNet extractor: image -> Vec<f32>                   (neonjava)
+data        folder -> images loader                               (rakshitha)
+detector    score, good-vector store, verdict, predict            (neonjava)
+analysis    threshold, severity, evaluate                         (megha)
+cli         clap subcommands: predict, evaluate                   (rakshitha)
+server      axum POST /predict                                    (ruthwin)
+web/        plain HTML upload page                                (ruthwin)
+scripts/    dataset download and split                            (rakshitha)
+```
+
+- Libraries (config, features, data, detector, analysis) return `Result<T, E>` with `thiserror` errors. Only `cli` and `server` use `anyhow` and print errors.
+- No `println!` in libraries. Only `cli` and `server` print.
+- Every tunable value is a key in `config.toml` and a field in `Config`. Add the key to `config.toml` in the same PR.
+- A crate only edits its own folder. Need a change in someone else's crate? Ask in the issue.
+- Tests live next to the code (`#[cfg(test)]`). Test with tiny synthetic data, never real dataset files.
+- Never commit data, model weights, images, or build output.
+
+## Using Antigravity (or any AI) without making slop
+1. Open the issue. Give the AI only that issue plus `AGENTS.md`. Do not ask it to "build the project".
+2. Tell it the exact file to edit and the exact function signature from the issue.
+3. After it writes code, read every line. Delete anything you cannot explain: extra helpers, extra error types, long comments, unused imports, "just in case" code.
+4. Run it yourself and paste the real output into the PR.
+5. If it invents a candle function that does not compile, do not fight it. Check the candle repo examples (https://github.com/huggingface/candle/tree/main/candle-examples) and tell neonjava if stuck.
+6. Common slop to reject: long doc comments, `unwrap()`, hardcoded `224` or `"data/..."`, a trait or builder where a function is enough, new dependencies nobody asked for, reformatted files, TODO stubs.
+7. Smaller is better. If your diff passes ~300 lines, you did too much. Split it.
+
+## Review
+neonjava reviews every PR against this file. A PR is sent back if the author cannot explain a line, there is no proof output, or any checklist item is unticked.
