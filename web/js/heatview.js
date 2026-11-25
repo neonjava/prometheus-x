@@ -91,7 +91,7 @@ const HEADINGS = { Good: 'Why it passed', Defect: 'Why it was rejected', Uncerta
 
 function whyHtml(result, spots) {
   if (result.verdict === 'Unknown') {
-    return `<div class="why"><h3>Why it was not judged</h3><p>The closest learned product is <b>${esc(result.product)}</b>, but this photo is ${(result.global.score / result.global.threshold).toFixed(1)} times its limit away. Pick the product by hand if you know it is one of them.</p></div>`;
+    return `<div class="why"><h3>Why it was not judged</h3><p>The closest learned product is <b>${esc(result.product)}</b>, but this photo is ${(result.global.score / result.global.threshold).toFixed(1)} times its limit away.</p></div>`;
   }
   const spotCards = spots
     .map(

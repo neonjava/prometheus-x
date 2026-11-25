@@ -47,7 +47,7 @@ Every path, size and threshold is in [`config.toml`](config.toml). Use `--config
 | `robustness_sample`, `[[perturbations]]` | images per class and the photo changes used by `robustness` |
 
 ## Several products
-Each product has its own model; one ResNet is shared. Train a product by pointing a copy of `config.toml` at its `train_dir`, `val_dir`, `test_dir` and at `good_vectors_path` / `patch_bank_path` inside `models/products/<name>/`, then run `build` with `--config`. The server loads every trained folder in `products_dir`, detects the product from the photo (or uses the one picked on the page) and answers "unknown product" when a photo is more than `unknown_ratio` times the closest product's limit.
+Each product has its own model; one ResNet is shared. Train a product by pointing a copy of `config.toml` at its `train_dir`, `val_dir`, `test_dir` and at `good_vectors_path` / `patch_bank_path` inside `models/products/<name>/`, then run `build` with `--config`. The server loads every trained folder in `products_dir`, detects the product from the photo and answers "unknown product" when a photo is more than `unknown_ratio` times the closest product's limit.
 
 ## The web page
 Open http://127.0.0.1:8080. Five pages, in a soft white and green style with falling leaves:

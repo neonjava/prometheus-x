@@ -1,8 +1,8 @@
 import {
-  csvUrl, deleteBatch, getBatch, getBatches, getStatus, getItem, imageUrl, saveDecision, startBatch, thumbUrl,
+  csvUrl, deleteBatch, getBatch, getBatches, getItem, imageUrl, saveDecision, startBatch, thumbUrl,
 } from '../api.js';
 import {
-  bindDropzone, category, CATEGORY_LABEL, CATEGORY_TAG, confirmSheet, Console, esc, fillProducts, formatBytes,
+  bindDropzone, category, CATEGORY_LABEL, CATEGORY_TAG, confirmSheet, Console, esc, formatBytes,
   formatDuration, formatTime, icon, resultHtml, reviewBox, SEVERITY_TAG, toast,
 } from '../ui.js';
 import { mountHeatView } from '../heatview.js';
@@ -80,7 +80,6 @@ export function mountBatch(root) {
 
     <div class="card" id="intake">
       <div class="section-label">Add images</div>
-      <select class="field product-pick" id="product" aria-label="Product"><option value="auto">Auto-detect product</option></select>
       <div class="dropzone" id="zone">${icon('upload')}<b>Drop a zip or many photos here</b><small id="picked">or click to choose files</small></div>
       <input class="hidden-input" type="file" id="input" accept=".zip,image/*" multiple>
       <label class="check-row"><input type="checkbox" id="replace-old"> Remove earlier finished batches once this one is uploaded</label>
@@ -132,7 +131,6 @@ export function mountBatch(root) {
     $('#start').disabled = false;
   }
   bindDropzone($('#zone'), $('#input'), setFiles);
-  getStatus().then((s) => fillProducts($('#product'), s.products)).catch(() => {});
 
   function showError(message) {
     $('#error').textContent = message;
@@ -149,7 +147,7 @@ export function mountBatch(root) {
         $('#bar').style.width = `${Math.round(fraction * 100)}%`;
         $('#progress-left').textContent = `Uploading ${Math.round(fraction * 100)}%`;
         $('#progress-right').textContent = '';
-      }, $('#product').value);
+      });
       const replace = $('#replace-old').checked;
       follow(id, true);
       if (replace) await removeOld(id);

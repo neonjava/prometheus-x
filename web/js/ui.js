@@ -220,12 +220,3 @@ export function confirmSheet(message, actionLabel) {
     document.body.append(el);
   });
 }
-
-// ---- product picker -----------------------------------------------------
-
-/** Fills a <select> with "Auto-detect" and every trained product. */
-export function fillProducts(select, products) {
-  select.innerHTML = ['<option value="auto">Auto-detect product</option>']
-    .concat(products.map((p) => `<option value="${esc(p.name)}">${esc(p.name)} (${p.good_vectors} good photos)</option>`))
-    .join('');
-}
