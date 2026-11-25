@@ -1,0 +1,77 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 700" font-family="Segoe UI, Helvetica, Arial, sans-serif">
+<defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#4f7a62"/></marker></defs>
+<rect width="1200" height="700" rx="18" fill="#f3f8f4"/>
+<text x="40" y="42" font-size="22" fill="#2f6045" font-weight="700" text-anchor="start">Prometheus-X: open-set anomaly detection (Rust + candle, CPU)</text>
+<text x="40" y="82" font-size="12.5" fill="#6c8377" font-weight="700" text-anchor="start">BUILD (once per product, good images only)</text>
+<rect x="40" y="96" width="190" height="74" rx="12" fill="#ffffff" stroke="#a9c8b2" stroke-width="1.5"/>
+<text x="135.0" y="129.5" font-size="15" fill="#2f6045" font-weight="700" text-anchor="middle">Good photos</text>
+<text x="135.0" y="148.5" font-size="12.5" fill="#5e7f6c" font-weight="400" text-anchor="middle">train/ and val/</text>
+<rect x="270" y="96" width="220" height="74" rx="12" fill="#ffffff" stroke="#a9c8b2" stroke-width="1.5"/>
+<text x="380.0" y="129.5" font-size="15" fill="#2f6045" font-weight="700" text-anchor="middle">ResNet-18 features</text>
+<text x="380.0" y="148.5" font-size="12.5" fill="#5e7f6c" font-weight="400" text-anchor="middle">same trunk as below</text>
+<rect x="530" y="96" width="300" height="74" rx="12" fill="#e6f1e9" stroke="#a9c8b2" stroke-width="1.5"/>
+<text x="680.0" y="129.5" font-size="15" fill="#2f6045" font-weight="700" text-anchor="middle">Product model</text>
+<text x="680.0" y="148.5" font-size="12.5" fill="#5e7f6c" font-weight="400" text-anchor="middle">global vectors + 30k patch bank</text>
+<rect x="870" y="96" width="290" height="74" rx="12" fill="#e6f1e9" stroke="#a9c8b2" stroke-width="1.5"/>
+<text x="1015.0" y="129.5" font-size="15" fill="#2f6045" font-weight="700" text-anchor="middle">Thresholds</text>
+<text x="1015.0" y="148.5" font-size="12.5" fill="#5e7f6c" font-weight="400" text-anchor="middle">80th percentile of val scores</text>
+<path d="M230 133 L270 133" fill="none" stroke="#4f7a62" stroke-width="1.8" marker-end="url(#a)"/>
+<path d="M490 133 L530 133" fill="none" stroke="#4f7a62" stroke-width="1.8" marker-end="url(#a)"/>
+<path d="M830 133 L870 133" fill="none" stroke="#4f7a62" stroke-width="1.8" marker-end="url(#a)"/>
+<line x1="40" y1="198" x2="1160" y2="198" stroke="#cde1d3" stroke-width="1.5"/>
+<text x="40" y="226" font-size="12.5" fill="#6c8377" font-weight="700" text-anchor="start">CHECK (every photo)</text>
+<rect x="40" y="246" width="150" height="96" rx="12" fill="#ffffff" stroke="#a9c8b2" stroke-width="1.5"/>
+<text x="115.0" y="282.0" font-size="15" fill="#2f6045" font-weight="700" text-anchor="middle">Photo</text>
+<text x="115.0" y="301.0" font-size="12.5" fill="#5e7f6c" font-weight="400" text-anchor="middle">single upload</text>
+<text x="115.0" y="318.0" font-size="12.5" fill="#5e7f6c" font-weight="400" text-anchor="middle">or zip batch</text>
+<rect x="225" y="246" width="195" height="96" rx="12" fill="#ffffff" stroke="#a9c8b2" stroke-width="1.5"/>
+<text x="322.5" y="282.0" font-size="15" fill="#2f6045" font-weight="700" text-anchor="middle">ResNet-18</text>
+<text x="322.5" y="301.0" font-size="12.5" fill="#5e7f6c" font-weight="400" text-anchor="middle">resize 224 x 224</text>
+<text x="322.5" y="318.0" font-size="12.5" fill="#5e7f6c" font-weight="400" text-anchor="middle">layers 2 + 3 + pooled</text>
+<rect x="455" y="246" width="205" height="96" rx="12" fill="#ffffff" stroke="#a9c8b2" stroke-width="1.5"/>
+<text x="557.5" y="282.0" font-size="15" fill="#2f6045" font-weight="700" text-anchor="middle">Product router</text>
+<text x="557.5" y="301.0" font-size="12.5" fill="#5e7f6c" font-weight="400" text-anchor="middle">nearest product</text>
+<text x="557.5" y="318.0" font-size="12.5" fill="#5e7f6c" font-weight="400" text-anchor="middle">too far: Unknown</text>
+<rect x="695" y="246" width="205" height="96" rx="12" fill="#ffffff" stroke="#a9c8b2" stroke-width="1.5"/>
+<text x="797.5" y="282.0" font-size="15" fill="#2f6045" font-weight="700" text-anchor="middle">Shift check</text>
+<text x="797.5" y="301.0" font-size="12.5" fill="#5e7f6c" font-weight="400" text-anchor="middle">distance to training</text>
+<text x="797.5" y="318.0" font-size="12.5" fill="#5e7f6c" font-weight="400" text-anchor="middle">mean: warning</text>
+<rect x="935" y="246" width="225" height="96" rx="12" fill="#ffffff" stroke="#a9c8b2" stroke-width="1.5"/>
+<text x="1047.5" y="282.0" font-size="15" fill="#2f6045" font-weight="700" text-anchor="middle">Step 1: global</text>
+<text x="1047.5" y="301.0" font-size="12.5" fill="#5e7f6c" font-weight="400" text-anchor="middle">512-d vector</text>
+<text x="1047.5" y="318.0" font-size="12.5" fill="#5e7f6c" font-weight="400" text-anchor="middle">nearest good vector</text>
+<path d="M190 294 L225 294" fill="none" stroke="#4f7a62" stroke-width="1.8" marker-end="url(#a)"/>
+<path d="M420 294 L455 294" fill="none" stroke="#4f7a62" stroke-width="1.8" marker-end="url(#a)"/>
+<path d="M660 294 L695 294" fill="none" stroke="#4f7a62" stroke-width="1.8" marker-end="url(#a)"/>
+<path d="M900 294 L935 294" fill="none" stroke="#4f7a62" stroke-width="1.8" marker-end="url(#a)"/>
+<rect x="935" y="420" width="225" height="96" rx="12" fill="#ffffff" stroke="#a9c8b2" stroke-width="1.5"/>
+<text x="1047.5" y="456.0" font-size="15" fill="#2f6045" font-weight="700" text-anchor="middle">Step 2: patches</text>
+<text x="1047.5" y="475.0" font-size="12.5" fill="#5e7f6c" font-weight="400" text-anchor="middle">28 x 28 x 384</text>
+<text x="1047.5" y="492.0" font-size="12.5" fill="#5e7f6c" font-weight="400" text-anchor="middle">nearest in patch bank</text>
+<path d="M1047 342 L1047 420" fill="none" stroke="#4f7a62" stroke-width="1.8" marker-end="url(#a)"/>
+<text x="1058" y="386" font-size="12.5" fill="#a98433" font-weight="600" text-anchor="start">looks odd</text>
+<rect x="640" y="420" width="220" height="96" rx="12" fill="#ffffff" stroke="#a9c8b2" stroke-width="1.5"/>
+<text x="750.0" y="456.0" font-size="15" fill="#2f6045" font-weight="700" text-anchor="middle">Fusion</text>
+<text x="750.0" y="475.0" font-size="12.5" fill="#5e7f6c" font-weight="400" text-anchor="middle">both agree?</text>
+<text x="750.0" y="492.0" font-size="12.5" fill="#5e7f6c" font-weight="400" text-anchor="middle">margin around threshold</text>
+<path d="M935 468 L860 468" fill="none" stroke="#4f7a62" stroke-width="1.8" marker-end="url(#a)"/>
+<rect x="40" y="590" width="250" height="80" rx="12" fill="#e4f1e8" stroke="#9cc5ab" stroke-width="1.5"/>
+<text x="165.0" y="626.5" font-size="15" fill="#3f7d58" font-weight="700" text-anchor="middle">Good</text>
+<text x="165.0" y="645.5" font-size="12.5" fill="#5e7f6c" font-weight="400" text-anchor="middle">passes</text>
+<rect x="335" y="590" width="320" height="80" rx="12" fill="#f7e7e4" stroke="#e0b3ad" stroke-width="1.5"/>
+<text x="495.0" y="626.5" font-size="15" fill="#a8554f" font-weight="700" text-anchor="middle">Defect</text>
+<text x="495.0" y="645.5" font-size="12.5" fill="#5e7f6c" font-weight="400" text-anchor="middle">heatmap, area %, severity, probability</text>
+<rect x="700" y="590" width="240" height="80" rx="12" fill="#f7efd6" stroke="#e3cd8f" stroke-width="1.5"/>
+<text x="820.0" y="626.5" font-size="15" fill="#8f6f22" font-weight="700" text-anchor="middle">Uncertain</text>
+<text x="820.0" y="645.5" font-size="12.5" fill="#5e7f6c" font-weight="400" text-anchor="middle">models disagree or near limit</text>
+<rect x="975" y="590" width="185" height="80" rx="12" fill="#ffffff" stroke="#a9c8b2" stroke-width="1.5"/>
+<text x="1067.5" y="618.0" font-size="15" fill="#2f6045" font-weight="700" text-anchor="middle">Human review</text>
+<text x="1067.5" y="637.0" font-size="12.5" fill="#5e7f6c" font-weight="400" text-anchor="middle">OK / Reject / Fix</text>
+<text x="1067.5" y="654.0" font-size="12.5" fill="#5e7f6c" font-weight="400" text-anchor="middle">saved to JSONL</text>
+<path d="M935 320 L905 320 L905 380 L110 380 L110 590" fill="none" stroke="#4f7a62" stroke-width="1.8" marker-end="url(#a)"/>
+<text x="122" y="405" font-size="12.5" fill="#3f7d58" font-weight="600" text-anchor="start">looks normal: pass, skip Step 2</text>
+<path d="M690 516 L690 550 L495 550 L495 590" fill="none" stroke="#4f7a62" stroke-width="1.8" marker-end="url(#a)"/>
+<path d="M750 516 L750 553 L820 553 L820 590" fill="none" stroke="#4f7a62" stroke-width="1.8" marker-end="url(#a)"/>
+<path d="M680 170 L680 212 L1115 212 L1115 246" fill="none" stroke="#4f7a62" stroke-width="1.8" marker-end="url(#a)" stroke-dasharray="6 5"/>
+<text x="40" y="692" font-size="12" fill="#6c8377" font-weight="400" text-anchor="start">Crates: config, data, features, analysis, detector, cli, server (axum)  |  Web: plain HTML, CSS, JavaScript</text>
+</svg>
