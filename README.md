@@ -26,6 +26,7 @@ cargo run --release -p cli -- build
 cargo run --release -p cli -- predict data/visa_pcb1/test/defect/040.JPG
 cargo run --release -p cli -- evaluate
 cargo run --release -p server          # open http://127.0.0.1:8080
+cargo run --release -p cli -- robustness   # re-test on darker, brighter, blurry, colour-shifted photos
 ```
 
 Every path, size and threshold is in [`config.toml`](config.toml). Use `--config <file>` to point the CLI at another one.
@@ -39,7 +40,17 @@ Every path, size and threshold is in [`config.toml`](config.toml). Use `--config
 | `threshold_percentile`, `uncertain_margin` | threshold from good validation scores; the relative band around it that counts as Uncertain |
 | `shift_percentile` | how far from the training average counts as a lighting/camera change |
 | `severity_low_max`, `severity_med_max` | edges of the Low / Medium / High severity buckets |
-| `server_bind`, `max_upload_bytes`, `decisions_path` | server address, upload limit, where review decisions are saved |
+| `server_bind`, `max_upload_bytes`, `decisions_path`, `web_dir` | server address, single-image upload limit, where review decisions are saved, folder with the page files |
+| `batches_dir`, `max_batch_bytes`, `max_unpacked_bytes`, `max_batch_files`, `batch_workers`, `thumb_size` | where batches are kept, upload and zip-unpack limits, file cap, images checked at once, thumbnail size |
+| `robustness_sample`, `[[perturbations]]` | images per class and the photo changes used by `robustness` |
+
+## The web page
+Open http://127.0.0.1:8080. Five pages, in a soft white and green style with falling leaves:
+- **Overview**: figures from the loaded model and links to everything.
+- **Check image**: drop one photo and watch each step in a console, with the heatmap.
+- **Batch**: drop a zip or many photos. A live progress bar, summary tiles (OK, needs review, defect, shift warnings, errors), a red / amber / green thumbnail grid you can filter and sort, a detail drawer with the heatmap, bulk OK / Reject / Fix, and CSV export. Results are saved under `batches_dir`, so a refresh or restart loses nothing.
+- **Review**: every decision people saved.
+- **How it works**: the diagram and the steps.
 
 ## How well it works
 VisA `pcb1`: 704 good for training, 150 good for validation, then 150 good and 100 defect for testing. Threshold at the 80th percentile.

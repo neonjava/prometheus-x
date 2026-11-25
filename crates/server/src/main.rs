@@ -369,6 +369,52 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn zip_upload_is_unpacked_and_checked() {
+        let (addr, _) = start("f").await;
+        let mut zip_bytes = Cursor::new(Vec::new());
+        {
+            let mut writer = zip::ZipWriter::new(&mut zip_bytes);
+            let options = zip::write::SimpleFileOptions::default();
+            // Many entries so the archive is larger than one upload chunk.
+            for n in 0..40 {
+                writer
+                    .start_file(format!("img{n}.png"), options)
+                    .expect("start");
+                std::io::Write::write_all(&mut writer, &png_bytes()).expect("write");
+            }
+            writer.finish().expect("finish");
+        }
+        let body = multipart("image", "set.zip", zip_bytes.get_ref());
+        let response = send(addr, "POST", "/batch", &form(), &body).await;
+        let id = response
+            .split("\"batch_id\":\"")
+            .nth(1)
+            .and_then(|rest| rest.split('"').next())
+            .expect("batch id")
+            .to_string();
+        let mut finished = String::new();
+        for _ in 0..100 {
+            finished = send(
+                addr,
+                "GET",
+                &format!("/batch/{id}"),
+                "application/json",
+                b"",
+            )
+            .await;
+            if finished.contains("\"status\":\"done\"")
+                || finished.contains("\"status\":\"failed\"")
+            {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        }
+        assert!(finished.contains("\"status\":\"done\""), "{finished}");
+        assert!(finished.contains("\"total\":40"), "{finished}");
+        assert!(finished.contains("\"name\":\"img39.png\""));
+    }
+
+    #[tokio::test]
     async fn batch_of_images_is_processed_and_served_back() {
         let (addr, _) = start("e").await;
         let body = multipart("image", "one.png", &png_bytes());

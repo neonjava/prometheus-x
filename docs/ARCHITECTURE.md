@@ -20,8 +20,9 @@ data        folder -> image paths / images
 analysis    pure maths: threshold, evaluate (AUROC, FPR, miss), severity, calibration, shift
 detector    scores, patch bank, good-vector store, verdict, fusion, predict (Step 1/2/3)
 cli         prometheus-x build | predict | evaluate
-server      axum: GET /, POST /predict, POST /decision
-web/        index.html, style.css, app.js (console + heatmap), leaves.js (falling leaves)
+server      axum: serves web/, POST /predict, POST /decision, GET /decisions, GET /status,
+            POST /batch and GET /batch/{id}[/item|thumb|image|export.csv]
+web/        index.html, style.css, js/ (router, pages: home, check, batch, review, how), leaves.js
 ```
 Dependencies point one way: `config` and `data` at the bottom, then `features` and `analysis`, then `detector`, then `cli` and `server`.
 
@@ -30,6 +31,7 @@ Dependencies point one way: `config` and `data` at the bottom, then `features` a
 - `models/good_vectors.json` (global vectors, thresholds, validation scores)
 - `models/patch_bank.safetensors` (good patch features)
 - `data/decisions.jsonl` (human decisions)
+- `data/batches/<id>/` (uploaded images, thumbnails, `results.jsonl` for each batch)
 
 ## Why ResNet features and no training
 No defect is ever seen in training, so the system learns what *good* looks like and flags anything far from it. That is what lets it catch defect types it has never seen.

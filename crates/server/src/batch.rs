@@ -441,6 +441,8 @@ pub async fn create(
             }
             file.write_all(&chunk).await.map_err(internal)?;
         }
+        // tokio files buffer writes; without a flush the end of a big zip can be lost.
+        file.flush().await.map_err(internal)?;
         uploads.push(Upload { name, path });
     }
     if uploads.is_empty() {
