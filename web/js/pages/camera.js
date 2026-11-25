@@ -1,12 +1,12 @@
 // Camera mode: teach a product by filming it, inspect it live, or watch another device.
 import { getLive, getStatus, learnProduct, liveFrameUrl, predictFrame, pushFrame } from '../api.js';
-import { drawFinding } from '../heatview.js';
+import { drawSpotHeat, liveSpots } from '../heatview.js';
 import { esc, toast } from '../ui.js';
 
 const FRAME_PX = 640;
 const JPEG_QUALITY = 0.85;
 const GUIDE_SHARE = 0.86;
-const LEARN_FRAMES = 60;
+const LEARN_FRAMES = 90;
 const LEARN_EVERY_MS = 250;
 const PREVIEW_EVERY_MS = 200;
 const WATCH_EVERY_MS = 200;
@@ -14,6 +14,8 @@ const STALE_MS = 3000;
 // A single odd frame (motion blur, a hand) should not raise the alarm.
 const VOTES = 3;
 const VOTES_NEEDED = 2;
+// An added object covers many patches; one or two lit patches are glare or blur.
+const MIN_SPOT_CELLS = 3;
 
 const LABELS = { Good: 'Looks normal', Defect: 'Anomaly found', Uncertain: 'Not sure' };
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -45,7 +47,7 @@ export function mountCamera(root) {
       <div style="display:grid;gap:1.6rem">
         <div class="card">
           <div class="section-label">1. Teach a good object</div>
-          <p class="small muted">Fill the square with the object on a plain background. While it records, move and tilt it a little. Keep the same background and light afterwards.</p>
+          <p class="small muted">Remove anything extra from the object, then fill the square with it on a plain background. While it records, slowly move, turn and tilt it into every position you will show later. Keep the same background and light afterwards.</p>
           <input class="field" id="name" value="charger" aria-label="Object name" style="width:100%;margin:.7rem 0">
           <button class="btn primary block" id="learn" disabled>Record and learn (${Math.round((LEARN_FRAMES * LEARN_EVERY_MS) / 1000)} s)</button>
           <div class="progress" id="progress" hidden><div class="bar"><i id="bar"></i></div><div class="meta"><span id="progress-text"></span></div></div>
@@ -98,14 +100,16 @@ export function mountCamera(root) {
   }
 
   function showVerdict(result) {
-    state.recent = [...state.recent, result.verdict].slice(-VOTES);
+    const spots = liveSpots(result, MIN_SPOT_CELLS);
+    const frame = result.verdict === 'Defect' && !spots.length ? 'Good' : result.verdict;
+    state.recent = [...state.recent, frame].slice(-VOTES);
     const verdict = steadyVerdict(state.recent);
     const banner = $('#verdict');
     banner.hidden = false;
     banner.className = `banner ${verdict}`;
     banner.textContent = LABELS[verdict];
     const score = result.patch ?? result.global;
-    $('#facts').innerHTML = `<div class="fact"><span>This frame</span><span>${esc(result.verdict)}</span></div>
+    $('#facts').innerHTML = `<div class="fact"><span>This frame</span><span>${esc(frame)}</span></div>
       <div class="fact"><span>Worst spot / limit</span><span>${score.score.toFixed(2)} / ${score.threshold.toFixed(2)}</span></div>`;
     // The frame is the guide square, so the heatmap is drawn over exactly that square.
     const guide = $('#guide');
@@ -114,7 +118,8 @@ export function mountCamera(root) {
       width: `${guide.offsetWidth}px`, height: `${guide.offsetHeight}px` });
     canvas.width = guide.offsetWidth;
     canvas.height = guide.offsetHeight;
-    drawFinding(canvas, result, verdict !== 'Good');
+    // Heat appears only for a confirmed anomaly, so a normal object stays clean.
+    drawSpotHeat(canvas, result, verdict === 'Defect' ? spots : []);
   }
 
   // ---- this device's camera ---------------------------------------------------
