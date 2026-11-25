@@ -146,6 +146,18 @@
       }
     });
 
+
+    // The whole zone is clickable and accepts dropped files.
+    const dropZone = document.getElementById('drop-zone');
+    dropZone.addEventListener('click', (e) => { if (e.target !== imageInput && e.target !== fileLabel) imageInput.click(); });
+    ['dragenter', 'dragover'].forEach((ev) => dropZone.addEventListener(ev, (e) => { e.preventDefault(); dropZone.style.background = '#d7ecd9'; }));
+    ['dragleave', 'drop'].forEach((ev) => dropZone.addEventListener(ev, (e) => { e.preventDefault(); dropZone.style.background = ''; }));
+    dropZone.addEventListener('drop', (e) => {
+      if (e.dataTransfer.files.length) { imageInput.files = e.dataTransfer.files; imageInput.dispatchEvent(new Event('change')); }
+    });
+    // Stop the browser from opening a file dropped outside the zone.
+    ['dragover', 'drop'].forEach((ev) => window.addEventListener(ev, (e) => e.preventDefault()));
+
     form.addEventListener('submit', async (e) => {
       e.preventDefault(); errorBox.style.display = 'none'; resultBox.style.display = 'none';
       const file = imageInput.files[0]; if (!file) return;
