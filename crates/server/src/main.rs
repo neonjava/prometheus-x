@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use axum::extract::Multipart;
+use axum::extract::{DefaultBodyLimit, Multipart};
 use axum::http::StatusCode;
 use axum::routing::post;
 use axum::{Json, Router};
@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Deserialize)]
 struct Config {
     server_bind: String,
+    max_upload_bytes: usize,
 }
 
 impl Config {
@@ -20,6 +21,12 @@ impl Config {
             .map_err(|err| anyhow::anyhow!("failed to parse config {}: {err}", path.display()))?;
         if config.server_bind.trim().is_empty() {
             anyhow::bail!("server_bind in {} must not be empty", path.display());
+        }
+        if config.max_upload_bytes == 0 {
+            anyhow::bail!(
+                "max_upload_bytes in {} must be greater than 0",
+                path.display()
+            );
         }
         Ok(config)
     }
@@ -79,8 +86,11 @@ async fn predict(
     }))
 }
 
-fn app() -> Router {
-    Router::new().route("/predict", post(predict))
+// Axum's default 2 MB body limit would reject real PCB photos.
+fn app(max_upload_bytes: usize) -> Router {
+    Router::new()
+        .route("/predict", post(predict))
+        .layer(DefaultBodyLimit::max(max_upload_bytes))
 }
 
 fn config_path() -> PathBuf {
@@ -98,7 +108,7 @@ async fn main() -> anyhow::Result<()> {
         .await
         .map_err(|err| anyhow::anyhow!("failed to bind {}: {err}", cfg.server_bind))?;
     println!("server listening on {}", cfg.server_bind);
-    axum::serve(listener, app()).await?;
+    axum::serve(listener, app(cfg.max_upload_bytes)).await?;
     Ok(())
 }
 
@@ -109,6 +119,8 @@ mod tests {
     use std::io::Cursor;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio::net::TcpStream;
+
+    const TEST_UPLOAD_LIMIT: usize = 1 << 20;
 
     struct TempConfig(PathBuf);
 
@@ -142,14 +154,21 @@ mod tests {
 
     #[test]
     fn config_load_valid() {
-        let temp = write_temp_config("server_bind = \"127.0.0.1:8080\"\n");
+        let temp = write_temp_config("server_bind = \"127.0.0.1:8080\"\nmax_upload_bytes = 1024\n");
         let cfg = Config::load(&temp.0).expect("load config");
         assert_eq!(cfg.server_bind, "127.0.0.1:8080");
+        assert_eq!(cfg.max_upload_bytes, 1024);
     }
 
     #[test]
     fn config_load_empty_bind_fails() {
-        let temp = write_temp_config("server_bind = \"   \"\n");
+        let temp = write_temp_config("server_bind = \"   \"\nmax_upload_bytes = 1024\n");
+        assert!(Config::load(&temp.0).is_err());
+    }
+
+    #[test]
+    fn config_load_zero_upload_limit_fails() {
+        let temp = write_temp_config("server_bind = \"127.0.0.1:8080\"\nmax_upload_bytes = 0\n");
         assert!(Config::load(&temp.0).is_err());
     }
 
@@ -166,7 +185,7 @@ mod tests {
             .expect("bind listener");
         let addr = listener.local_addr().expect("local addr");
         tokio::spawn(async move {
-            let _ = axum::serve(listener, app()).await;
+            let _ = axum::serve(listener, app(TEST_UPLOAD_LIMIT)).await;
         });
 
         let png = synthetic_png_bytes();
@@ -210,7 +229,7 @@ mod tests {
             .expect("bind listener");
         let addr = listener.local_addr().expect("local addr");
         tokio::spawn(async move {
-            let _ = axum::serve(listener, app()).await;
+            let _ = axum::serve(listener, app(TEST_UPLOAD_LIMIT)).await;
         });
 
         let boundary = "------------------------boundary456";
