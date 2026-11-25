@@ -434,6 +434,9 @@ fn check_one(state: &Shared, dir: &Path, name: &str) -> Record {
         Ok(image) => image,
         Err(e) => return fail(format!("cannot read image: {e}")),
     };
+    if let Some(reason) = state.unusable(&image) {
+        return fail(reason);
+    }
     let prediction = match state.model.predict(&image) {
         Ok(prediction) => prediction,
         Err(e) => return fail(e),
@@ -644,6 +647,23 @@ pub async fn status(
         error,
         items,
     }))
+}
+
+/// Deletes a finished batch with its photos and results.
+pub async fn remove(
+    State(state): State<Shared>,
+    UrlPath(id): UrlPath<String>,
+) -> Result<StatusCode, ApiError> {
+    let job = find_job(&state, &id)?;
+    let status = job.status.lock().map_err(internal)?.clone();
+    if status != "done" && status != "failed" {
+        return Err((StatusCode::CONFLICT, "this batch is still running".into()));
+    }
+    tokio::fs::remove_dir_all(state.batches.batch_dir(&id))
+        .await
+        .map_err(internal)?;
+    state.batches.jobs.lock().map_err(internal)?.remove(&id);
+    Ok(StatusCode::NO_CONTENT)
 }
 
 pub async fn list_endpoint(State(state): State<Shared>) -> Json<Vec<BatchListItem>> {
@@ -864,6 +884,7 @@ mod tests {
             model: Box::new(StubModel),
             decisions_path: dir.join("d.jsonl"),
             batches,
+            min_mean_brightness: 1.0,
         });
         let batch = dir.join("b1");
         for sub in [IMAGES_DIR, THUMBS_DIR] {
@@ -871,15 +892,18 @@ mod tests {
         }
         fs::write(batch.join(IMAGES_DIR).join("good.png"), png()).expect("write good");
         fs::write(batch.join(IMAGES_DIR).join("bad.png"), b"not an image").expect("write bad");
+        RgbImage::new(8, 8)
+            .save(batch.join(IMAGES_DIR).join("mask.png"))
+            .expect("write black mask");
 
         let job = Job::new("preparing");
-        let names = vec!["good.png".to_string(), "bad.png".to_string()];
+        let names = ["good.png", "bad.png", "mask.png"].map(String::from);
         process(&state, &job, &batch, &names).expect("process");
 
-        assert_eq!(job.done.load(Ordering::Relaxed), 2);
+        assert_eq!(job.done.load(Ordering::Relaxed), 3);
         let records = read_records(&batch.join(RESULTS_FILE)).expect("results file");
-        assert_eq!(records.len(), 2);
-        assert_eq!(records.iter().filter(|r| r.error.is_some()).count(), 1);
+        assert_eq!(records.len(), 3);
+        assert_eq!(records.iter().filter(|r| r.error.is_some()).count(), 2);
         assert!(batch.join(THUMBS_DIR).join("good.png.jpg").exists());
         let csv = to_csv(&records);
         assert!(csv.starts_with("name,verdict"));
@@ -970,5 +994,26 @@ mod tests {
         decided.insert("1000-0/img2.png".to_string());
         let pending_after = batches.pending_reviews(&decided);
         assert_eq!(pending_after.len(), 0);
+    }
+
+    #[tokio::test]
+    async fn running_batch_cannot_be_deleted() {
+        let dir = temp_dir("busy");
+        let batches = Batches::new(settings(&dir, 10, 1 << 20));
+        batches
+            .jobs
+            .lock()
+            .expect("jobs")
+            .insert("1-0".into(), Arc::new(Job::new("running")));
+        fs::create_dir_all(dir.join("1-0")).expect("batch dir");
+        let state: Shared = Arc::new(AppState {
+            model: Box::new(StubModel),
+            decisions_path: dir.join("d.jsonl"),
+            batches,
+            min_mean_brightness: 1.0,
+        });
+        let refused = remove(State(state), UrlPath("1-0".into())).await;
+        assert_eq!(refused.map_err(|e| e.0), Err(StatusCode::CONFLICT));
+        assert!(dir.join("1-0").exists());
     }
 }

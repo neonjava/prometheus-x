@@ -27,6 +27,17 @@ pub struct AppState {
     pub model: Box<dyn Model>,
     pub decisions_path: PathBuf,
     pub batches: Batches,
+    pub min_mean_brightness: f32,
+}
+
+impl AppState {
+    /// Why an image should not be judged at all, if there is such a reason.
+    pub fn unusable(&self, image: &DynamicImage) -> Option<String> {
+        (data::mean_brightness(image) < self.min_mean_brightness).then(|| {
+            "image is almost black, so it was not judged (is it a mask file rather than a photo?)"
+                .to_string()
+        })
+    }
 }
 
 pub type Shared = Arc<AppState>;
