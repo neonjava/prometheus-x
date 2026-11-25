@@ -220,7 +220,7 @@ impl Batches {
                 });
             }
         }
-        items.sort_by(|a, b| b.time.cmp(&a.time));
+        items.sort_by_key(|a| std::cmp::Reverse(a.time));
         items
     }
 
@@ -268,7 +268,7 @@ impl Batches {
                 }
             }
         }
-        pending.sort_by(|a, b| b.time_unix.cmp(&a.time_unix));
+        pending.sort_by_key(|a| std::cmp::Reverse(a.time_unix));
         pending
     }
 }
