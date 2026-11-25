@@ -1,17 +1,25 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Check required CLI arguments
+# Official VisA archive; override with VISA_URL or the 4th argument.
+DEFAULT_VISA_URL="https://amazon-visual-anomaly.s3.us-west-2.amazonaws.com/VisA_20220922.tar"
+
 if [ "$#" -lt 3 ]; then
-    echo "Usage: $0 <category> <out_dir> <val_ratio>" >&2
+    echo "Usage: $0 <category> <out_dir> <ratio> [url_or_path]" >&2
+    echo "  ratio: share of good images for val and for test/good each (0 < ratio < 0.5)" >&2
     exit 1
 fi
 
 CATEGORY="$1"
 OUT_DIR="$2"
 VAL_RATIO="$3"
-# Allow overriding source archive URL or local path via VISA_URL or 4th arg
-SOURCE_URL="${4:-${VISA_URL:-https://amazon-visual-anomaly.s3.us-west-2.amazonaws.com/VisA_20220922.tar}}"
+SOURCE_URL="${4:-${VISA_URL:-$DEFAULT_VISA_URL}}"
+
+# Test needs good images too, or AUROC and false-positive rate are undefined.
+if ! awk -v r="$VAL_RATIO" 'BEGIN { exit !(r ~ /^[0-9.]+$/ && r > 0 && r < 0.5) }'; then
+    echo "Error: ratio must be a number with 0 < ratio < 0.5, got '$VAL_RATIO'" >&2
+    exit 1
+fi
 
 # Check required tools
 for cmd in curl tar awk; do
@@ -21,10 +29,9 @@ for cmd in curl tar awk; do
     fi
 done
 
-# Prepare destination directories
-mkdir -p "$OUT_DIR/train/good"
-mkdir -p "$OUT_DIR/val/good"
-mkdir -p "$OUT_DIR/test"
+# Clear old splits so a re-run with another ratio cannot leave images in two splits.
+rm -rf "$OUT_DIR/train" "$OUT_DIR/val" "$OUT_DIR/test"
+mkdir -p "$OUT_DIR/train/good" "$OUT_DIR/val/good" "$OUT_DIR/test/good" "$OUT_DIR/test/defect"
 
 # Use temporary directory for archive extraction
 TMP_DIR=$(mktemp -d)
@@ -103,28 +110,32 @@ if [ "$TOTAL_GOOD" -eq 0 ]; then
     exit 1
 fi
 
-# Calculate validation split size
-VAL_COUNT=$(awk -v total="$TOTAL_GOOD" -v ratio="$VAL_RATIO" 'BEGIN { printf "%d\n", int(total * ratio) }')
-if [ "$VAL_COUNT" -eq 0 ] && [ "$TOTAL_GOOD" -gt 1 ] && [ "$(awk -v r="$VAL_RATIO" 'BEGIN { print (r > 0 ? 1 : 0) }')" -eq 1 ]; then
-    VAL_COUNT=1
+# Val and test/good each get the same share; at least one image each.
+HOLDOUT_COUNT=$(awk -v total="$TOTAL_GOOD" -v ratio="$VAL_RATIO" 'BEGIN { n = int(total * ratio); print (n < 1 ? 1 : n) }')
+TRAIN_COUNT=$((TOTAL_GOOD - 2 * HOLDOUT_COUNT))
+if [ "$TRAIN_COUNT" -lt 1 ]; then
+    echo "Error: only $TOTAL_GOOD good images, too few to split with ratio $VAL_RATIO" >&2
+    exit 1
 fi
-TRAIN_COUNT=$((TOTAL_GOOD - VAL_COUNT))
 
-# Copy images into train and val splits
-for ((i=0; i<TRAIN_COUNT; i++)); do
-    cp "${GOOD_FILES[i]}" "$OUT_DIR/train/good/"
+VAL_END=$((TRAIN_COUNT + HOLDOUT_COUNT))
+for ((i=0; i<TOTAL_GOOD; i++)); do
+    if [ "$i" -lt "$TRAIN_COUNT" ]; then
+        dest="train/good"
+    elif [ "$i" -lt "$VAL_END" ]; then
+        dest="val/good"
+    else
+        dest="test/good"
+    fi
+    cp "${GOOD_FILES[i]}" "$OUT_DIR/$dest/"
 done
 
-for ((i=TRAIN_COUNT; i<TOTAL_GOOD; i++)); do
-    cp "${GOOD_FILES[i]}" "$OUT_DIR/val/good/"
-done
-
-# Copy defect images into test split
 for file in "${DEFECT_FILES[@]}"; do
-    cp "$file" "$OUT_DIR/test/"
+    cp "$file" "$OUT_DIR/test/defect/"
 done
 
-echo "Successfully split $CATEGORY into $OUT_DIR:"
-echo "  train/good: $TRAIN_COUNT images"
-echo "  val/good:   $VAL_COUNT images"
-echo "  test:       ${#DEFECT_FILES[@]} defect images"
+echo "Split $CATEGORY into $OUT_DIR:"
+echo "  train/good:  $TRAIN_COUNT"
+echo "  val/good:    $HOLDOUT_COUNT"
+echo "  test/good:   $HOLDOUT_COUNT"
+echo "  test/defect: ${#DEFECT_FILES[@]}"
