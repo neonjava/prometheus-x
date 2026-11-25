@@ -3,6 +3,23 @@ use std::path::{Path, PathBuf};
 use serde::Deserialize;
 use thiserror::Error;
 
+/// A synthetic change to a photo, used to test robustness to lighting and camera changes.
+#[derive(Debug, Clone, Deserialize)]
+pub struct Perturbation {
+    pub name: String,
+    pub kind: PerturbationKind,
+    pub amount: f32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum PerturbationKind {
+    Brightness,
+    Contrast,
+    Blur,
+    Hue,
+}
+
 #[derive(Debug, Error)]
 pub enum ConfigError {
     #[error("failed to read config {path}: {source}")]
@@ -50,6 +67,10 @@ pub struct Config {
     pub severity_med_max: f32,
     /// Human review decisions are appended here, one JSON object per line.
     pub decisions_path: PathBuf,
+    /// Images per class (good, defect) used by the robustness test.
+    pub robustness_sample: usize,
+    #[serde(default)]
+    pub perturbations: Vec<Perturbation>,
 }
 
 impl Config {
@@ -123,6 +144,12 @@ shift_percentile = 99.0
 severity_low_max = 5.0
 severity_med_max = 15.0
 decisions_path = "d.jsonl"
+robustness_sample = 5
+
+[[perturbations]]
+name = "darker"
+kind = "brightness"
+amount = -40.0
 "#;
 
     fn write(name: &str, text: &str) -> PathBuf {
@@ -138,6 +165,8 @@ decisions_path = "d.jsonl"
         let cfg = Config::load(&path).expect("valid config");
         assert_eq!(cfg.input_size, 224);
         assert_eq!(cfg.server_bind, "127.0.0.1:0");
+        assert_eq!(cfg.perturbations.len(), 1);
+        assert_eq!(cfg.perturbations[0].kind, PerturbationKind::Brightness);
     }
 
     #[test]

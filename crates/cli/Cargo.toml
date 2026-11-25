@@ -15,3 +15,4 @@ config = { path = "../config" }
 data = { path = "../data" }
 detector = { path = "../detector" }
 features = { path = "../features" }
+image = "0.25.10"

@@ -496,6 +496,7 @@ dependencies = [
  "data",
  "detector",
  "features",
+ "image",
 ]
 
 [[package]]
@@ -643,6 +644,7 @@ dependencies = [
 name = "data"
 version = "0.1.0"
 dependencies = [
+ "config",
  "image",
  "thiserror 2.0.21",
 ]
