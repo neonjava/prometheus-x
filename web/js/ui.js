@@ -72,29 +72,30 @@ export function formatTime(unixSeconds) {
 
 export function category(item) {
   if (item.status === 'error') return 'error';
-  return { Good: 'ok', Defect: 'defect', Uncertain: 'review' }[item.verdict] ?? 'error';
+  return { Good: 'ok', Defect: 'defect', Uncertain: 'review', Unknown: 'unknown' }[item.verdict] ?? 'error';
 }
 
-export const CATEGORY_LABEL = { ok: 'OK', review: 'Needs review', defect: 'Defect', error: 'Error' };
-export const CATEGORY_TAG = { ok: 'ok', review: 'warn', defect: 'danger', error: 'grey' };
+export const CATEGORY_LABEL = { ok: 'OK', review: 'Needs review', defect: 'Defect', unknown: 'Unknown product', error: 'Error' };
+export const CATEGORY_TAG = { ok: 'ok', review: 'warn', defect: 'danger', unknown: 'grey', error: 'grey' };
 export const SEVERITY_TAG = { Low: 'warn', Medium: 'danger', High: 'danger' };
 
 export const BANNERS = {
   Good: ['OK, passes', 'Step 1 found nothing odd.'],
   Defect: ['Rejected', 'Both checks flag damage.'],
   Uncertain: ['Needs a person', 'The two checks disagree or are unsure.'],
+  Unknown: ['Unknown product', 'This does not look like any product the system has learned, so it was not judged.'],
 };
 
 // ---- console ------------------------------------------------------------
 
 export function lineClass(message) {
-  if (/WARNING|looks odd/.test(message)) return 'warn';
+  if (/WARNING|looks odd|unknown product/.test(message)) return 'warn';
   if (/REJECTED/.test(message)) return 'bad';
   if (/PASS|OK|Step 1 passed/.test(message)) return 'ok';
   return '';
 }
 
-export const VERDICT_CLASS = { Good: 'ok', Defect: 'bad', Uncertain: 'warn' };
+export const VERDICT_CLASS = { Good: 'ok', Defect: 'bad', Uncertain: 'warn', Unknown: 'warn' };
 
 const REPLAY_MS = 200;
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -144,8 +145,13 @@ export function describeModel(model) {
 
 export function resultHtml(result) {
   const [title, subtitle] = BANNERS[result.verdict];
+  if (result.verdict === 'Unknown') {
+    return `<div class="banner Unknown">${title}<small>${subtitle}</small></div>
+      <div class="facts">${fact('Closest product', esc(result.product))}</div>`;
+  }
   const f = result.finding;
   let facts =
+    (result.product ? fact('Product', esc(result.product)) : '') +
     fact('Step 1 · global check', describeModel(result.global)) +
     fact('Step 2 · patch check', describeModel(result.patch));
   if (f) {

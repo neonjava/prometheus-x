@@ -1,8 +1,12 @@
 # Prometheus-X
 
+[![Demo: checking single photos, a zip batch and the review queue](docs/demo.gif)](docs/demo.mp4)
+
+**[Watch the full demo video (90 s, MP4)](docs/demo.mp4).** Recorded from the running app. The single photos shown are ones the system handles correctly; measured accuracy, including where it fails, is [below](#how-well-it-works). Sample photos are from [MVTec AD](https://www.mvtec.com/company/research/datasets/mvtec-ad) (CC BY-NC-SA 4.0) and [VisA](https://github.com/amazon-science/spot-diff) (CC BY 4.0).
+
 Open-set anomaly detection for industrial images (semiconductor and PCB focus), written in Rust with [candle](https://github.com/huggingface/candle). It trains on **good images only** and flags defects it has never seen.
 
-![workflow](docs/workflow.png)
+![Architecture: build from good images, then product routing, shift check, global check, patch check, fusion and human review](docs/architecture.svg)
 
 For every image it reports: defect or not, where (heatmap), how bad (Low / Medium / High), how sure (defect probability), a warning if lighting or camera changed, and a Good / Defect / Uncertain verdict so a person only reviews the doubtful cases. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
@@ -42,8 +46,12 @@ Every path, size and threshold is in [`config.toml`](config.toml). Use `--config
 | `severity_low_max`, `severity_med_max` | edges of the Low / Medium / High severity buckets |
 | `server_bind`, `max_upload_bytes`, `decisions_path`, `web_dir` | server address, single-image upload limit, where review decisions are saved, folder with the page files |
 | `batches_dir`, `max_batch_bytes`, `max_unpacked_bytes`, `max_batch_files`, `batch_workers`, `thumb_size` | where batches are kept, upload and zip-unpack limits, file cap, images checked at once, thumbnail size |
+| `products_dir`, `default_product`, `unknown_ratio` | trained products folder, name of the main model, how far a photo may be before it is unknown |
 | `min_mean_brightness` | images darker than this (0-255) are reported as errors, such as dataset mask files |
 | `robustness_sample`, `[[perturbations]]` | images per class and the photo changes used by `robustness` |
+
+## Several products
+Each product has its own model; one ResNet is shared. Train a product by pointing a copy of `config.toml` at its `train_dir`, `val_dir`, `test_dir` and at `good_vectors_path` / `patch_bank_path` inside `models/products/<name>/`, then run `build` with `--config`. The server loads every trained folder in `products_dir`, detects the product from the photo and answers "unknown product" when a photo is more than `unknown_ratio` times the closest product's limit.
 
 ## The web page
 Open http://127.0.0.1:8080. Five pages, in a soft white and green style with falling leaves:
@@ -68,7 +76,18 @@ Final verdicts (Step 1 passes normal images, otherwise Step 1 and Step 2 are fus
 | 150 good images | 136 | 14 | 0 |
 | 100 defect images | 13 | 64 | 23 |
 
-No good image is called a defect, and most defects are held for a person to review rather than passed. The 13 defects called Good are the weak spot. This was tested on one dataset only.
+No good image is called a defect, and most defects are held for a person to review rather than passed. The 13 defects called Good are the weak spot. These detailed counts are for `pcb1`; other products are listed below.
+
+### Other products
+The same method was trained on all MVTec AD and MVTec LOCO categories. Image AUROC of the patch check on each test set:
+
+| Rating | Products |
+|---|---|
+| 0.95 and above | bottle 0.999, leather 0.997, hazelnut 0.984, wood 0.975, metal_nut 0.965, carpet 0.961 |
+| 0.80 to 0.95 | toothbrush 0.90, zipper 0.89, juice_bottle 0.87, tile 0.87, capsule 0.86, transistor 0.83, screw 0.81 |
+| below 0.80 | cable 0.79, splicing_connectors 0.73, pill 0.73, pushpins 0.66, screw_bag 0.65, breakfast_box 0.61, grid 0.58 |
+
+A high AUROC does not mean good photos pass outright: leather and wood passed none, and most of their good photos went to review. Many MVTec LOCO defects are wrong counts or arrangements, which these checks are not built to catch.
 
 ## Repository
 `crates/` Rust workspace, `web/` the page, `scripts/` dataset split, `docs/` architecture and diagram. Team rules, code rules and how to use an AI assistant are in [CONTRIBUTING.md](CONTRIBUTING.md) and [AGENTS.md](AGENTS.md).

@@ -1,3 +1,4 @@
+pub mod catalog;
 pub mod patch;
 pub mod predict;
 pub mod score;
@@ -36,6 +37,10 @@ pub enum DetectorError {
     },
     #[error("patch bank file {0} has no bank tensor")]
     BadBank(PathBuf),
+    #[error("no trained product found; run build first (looked in {0})")]
+    NoProducts(PathBuf),
+    #[error("unknown product '{0}'")]
+    UnknownProduct(String),
     #[error(transparent)]
     Candle(#[from] candle_core::Error),
     #[error(transparent)]
@@ -46,6 +51,7 @@ pub enum DetectorError {
     Analysis(#[from] analysis::AnalysisError),
 }
 
+pub use catalog::{Catalog, Outcome};
 pub use predict::{predict, Finding, LogLine, ModelInfo, ModelResult, Prediction, Predictor};
 pub use score::global_score;
 pub use verdict::{fuse, verdict, Verdict};

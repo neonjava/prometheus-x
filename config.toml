@@ -26,6 +26,11 @@ batch_workers = 5
 thumb_size = 240
 # Almost-black images (such as dataset mask files) are reported as errors instead of judged.
 min_mean_brightness = 10.0
+# Every trained folder in products_dir is a product; the model above is shown as default_product.
+products_dir = "models/products"
+default_product = "pcb1"
+# A photo farther than this multiple of the closest product's limit is "unknown product".
+unknown_ratio = 3.0
 robustness_sample = 50
 
 # Photo changes used by `prometheus-x robustness`.

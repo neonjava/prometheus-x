@@ -15,10 +15,10 @@ use axum::routing::{get, post};
 use axum::{Json, Router};
 use batch::{BatchSettings, Batches};
 use config::Config;
-use detector::Predictor;
+use detector::Catalog;
 use responses::{LogResponse, PredictionResponse};
 use serde::{Deserialize, Serialize};
-use state::{bad_request, internal, ApiError, AppState, Shared};
+use state::{bad_request, internal, product_choice, ApiError, AppState, Shared};
 use tower_http::services::ServeDir;
 
 const DECISIONS: [&str; 3] = ["ok", "reject", "fix"];
@@ -26,22 +26,43 @@ const MAX_DECISIONS_SHOWN: usize = 500;
 // Multipart framing adds a little on top of the file bytes.
 const MULTIPART_SLACK_BYTES: u64 = 1 << 20;
 
-async fn read_image_field(mut multipart: Multipart) -> Result<(String, Vec<u8>), ApiError> {
+struct CheckRequest {
+    name: String,
+    bytes: Vec<u8>,
+    product: Option<String>,
+}
+
+async fn read_check_request(mut multipart: Multipart) -> Result<CheckRequest, ApiError> {
+    let mut image = None;
+    let mut product = None;
     while let Some(field) = multipart
         .next_field()
         .await
         .map_err(|e| bad_request(format!("invalid multipart: {e}")))?
     {
-        if field.name() == Some("image") {
-            let name = field.file_name().unwrap_or("upload").to_string();
-            let bytes = field
-                .bytes()
-                .await
-                .map_err(|e| bad_request(format!("failed to read image: {e}")))?;
-            return Ok((name, bytes.to_vec()));
+        let kind = field.name().map(str::to_string);
+        match kind.as_deref() {
+            Some("image") => {
+                let name = field.file_name().unwrap_or("upload").to_string();
+                let bytes = field
+                    .bytes()
+                    .await
+                    .map_err(|e| bad_request(format!("failed to read image: {e}")))?;
+                image = Some((name, bytes.to_vec()));
+            }
+            Some("product") => {
+                product = product_choice(field.text().await.map_err(bad_request)?);
+            }
+            _ => {}
         }
     }
-    Err(bad_request("missing image field in multipart upload"))
+    let (name, bytes) =
+        image.ok_or_else(|| bad_request("missing image field in multipart upload"))?;
+    Ok(CheckRequest {
+        name,
+        bytes,
+        product,
+    })
 }
 
 async fn predict(
@@ -49,7 +70,11 @@ async fn predict(
     multipart: Multipart,
 ) -> Result<Json<PredictionResponse>, ApiError> {
     let started = Instant::now();
-    let (name, bytes) = read_image_field(multipart).await?;
+    let CheckRequest {
+        name,
+        bytes,
+        product,
+    } = read_check_request(multipart).await?;
     let mut log = vec![LogResponse {
         message: format!("Upload received: {name} ({} KB)", bytes.len() / 1024),
         ms: started.elapsed().as_millis() as u64,
@@ -68,10 +93,11 @@ async fn predict(
     }
 
     // Inference is CPU-heavy, keep it off the async threads.
-    let prediction = tokio::task::spawn_blocking(move || state.model.predict(&image))
-        .await
-        .map_err(internal)?
-        .map_err(internal)?;
+    let prediction =
+        tokio::task::spawn_blocking(move || state.model.predict(&image, product.as_deref()))
+            .await
+            .map_err(internal)?
+            .map_err(internal)?;
     let mut response = PredictionResponse::from(prediction);
     log.append(&mut response.log);
     response.log = log;
@@ -163,25 +189,36 @@ async fn pending(State(state): State<Shared>) -> Json<Vec<batch::PendingItem>> {
 }
 
 #[derive(Serialize)]
+struct ProductStatus {
+    name: String,
+    good_vectors: usize,
+}
+
+#[derive(Serialize)]
 struct StatusResponse {
+    /// Good photos and patches learned, summed over all products.
     good_vectors: usize,
     patch_rows: usize,
-    global_threshold: f32,
-    patch_threshold: f32,
+    products: Vec<ProductStatus>,
     reviews: usize,
     batches: usize,
     waiting_for_review: usize,
 }
 
 async fn status(State(state): State<Shared>) -> Json<StatusResponse> {
-    let info = state.model.info();
+    let products = state.model.products();
     let decided = read_decided_keys(&state.decisions_path);
     let waiting_for_review = state.batches.pending_reviews(&decided).len();
     Json(StatusResponse {
-        good_vectors: info.good_vectors,
-        patch_rows: info.patch_rows,
-        global_threshold: info.global_threshold,
-        patch_threshold: info.patch_threshold,
+        good_vectors: products.iter().map(|(_, i)| i.good_vectors).sum(),
+        patch_rows: products.iter().map(|(_, i)| i.patch_rows).sum(),
+        products: products
+            .into_iter()
+            .map(|(name, i)| ProductStatus {
+                name,
+                good_vectors: i.good_vectors,
+            })
+            .collect(),
         reviews: read_decisions(&state.decisions_path).len(),
         batches: state.batches.count(),
         waiting_for_review,
@@ -247,7 +284,7 @@ fn batch_settings(cfg: &Config) -> BatchSettings {
 async fn main() -> anyhow::Result<()> {
     let cfg = Config::load(&config_path())?;
     let state: Shared = Arc::new(AppState {
-        model: Box::new(Predictor::load(&cfg)?),
+        model: Box::new(Catalog::load(&cfg)?),
         decisions_path: cfg.decisions_path.clone(),
         batches: Batches::new(batch_settings(&cfg)),
         min_mean_brightness: cfg.min_mean_brightness,
@@ -402,7 +439,7 @@ mod tests {
         let (addr, _) = start("d").await;
         let response = send(addr, "GET", "/status", "application/json", b"").await;
         assert!(response.contains("\"good_vectors\":3"));
-        assert!(response.contains("\"patch_threshold\":6.0"));
+        assert!(response.contains("\"name\":\"stub\""));
         let page = send(addr, "GET", "/", "text/html", b"").await;
         assert!(page.contains("<html>page</html>"));
         assert!(page.contains("cache-control: no-cache"), "{page}");
@@ -501,7 +538,7 @@ mod tests {
             b"",
         )
         .await;
-        assert!(csv.contains("one.png,Defect"));
+        assert!(csv.contains("one.png,stub,Defect"));
         let removed = send(
             addr,
             "DELETE",

@@ -16,7 +16,7 @@ use serde::{Deserialize, Serialize};
 use tokio::io::AsyncWriteExt;
 
 use crate::responses::PredictionResponse;
-use crate::state::{bad_request, internal, not_found, ApiError, Shared};
+use crate::state::{bad_request, internal, not_found, product_choice, ApiError, Shared};
 
 const RESULTS_FILE: &str = "results.jsonl";
 const IMAGES_DIR: &str = "images";
@@ -45,6 +45,7 @@ pub struct Summary {
     name: String,
     status: &'static str,
     error: Option<String>,
+    product: Option<String>,
     verdict: Option<String>,
     needs_review: bool,
     global_score: Option<f32>,
@@ -424,7 +425,7 @@ fn prepare_images(
     Ok(names)
 }
 
-fn check_one(state: &Shared, dir: &Path, name: &str) -> Record {
+fn check_one(state: &Shared, dir: &Path, name: &str, product: Option<&str>) -> Record {
     let fail = |error: String| Record {
         name: name.to_string(),
         response: None,
@@ -437,7 +438,7 @@ fn check_one(state: &Shared, dir: &Path, name: &str) -> Record {
     if let Some(reason) = state.unusable(&image) {
         return fail(reason);
     }
-    let prediction = match state.model.predict(&image) {
+    let prediction = match state.model.predict(&image, product) {
         Ok(prediction) => prediction,
         Err(e) => return fail(e),
     };
@@ -453,7 +454,13 @@ fn check_one(state: &Shared, dir: &Path, name: &str) -> Record {
     }
 }
 
-fn process(state: &Shared, job: &Job, dir: &Path, names: &[String]) -> Result<(), String> {
+fn process(
+    state: &Shared,
+    job: &Job,
+    dir: &Path,
+    names: &[String],
+    product: Option<&str>,
+) -> Result<(), String> {
     job.total.store(names.len(), Ordering::Relaxed);
     job.set_status("running");
     let results = Mutex::new(
@@ -469,7 +476,7 @@ fn process(state: &Shared, job: &Job, dir: &Path, names: &[String]) -> Result<()
             scope.spawn(|| loop {
                 let index = next.fetch_add(1, Ordering::Relaxed);
                 let Some(name) = names.get(index) else { break };
-                let record = check_one(state, dir, name);
+                let record = check_one(state, dir, name, product);
                 if let (Ok(mut file), Ok(line)) = (results.lock(), serde_json::to_string(&record)) {
                     let _ = writeln!(file, "{line}");
                 }
@@ -483,10 +490,16 @@ fn process(state: &Shared, job: &Job, dir: &Path, names: &[String]) -> Result<()
     Ok(())
 }
 
-fn run_job(state: Shared, job: Arc<Job>, dir: PathBuf, uploads: Vec<Upload>) {
+fn run_job(
+    state: Shared,
+    job: Arc<Job>,
+    dir: PathBuf,
+    uploads: Vec<Upload>,
+    product: Option<String>,
+) {
     let images = dir.join(IMAGES_DIR);
     let outcome = prepare_images(&state.batches.settings, &images, &uploads)
-        .and_then(|names| process(&state, &job, &dir, &names));
+        .and_then(|names| process(&state, &job, &dir, &names, product.as_deref()));
     let _ = fs::remove_dir_all(dir.join(INCOMING_DIR));
     match outcome {
         Ok(()) => job.set_status("done"),
@@ -509,6 +522,7 @@ fn summarize(record: &Record) -> Summary {
             "ok"
         },
         error: record.error.clone(),
+        product: response.and_then(|r| r.product.clone()),
         verdict: response.map(|r| r.verdict.clone()),
         needs_review: response.is_some_and(|r| r.needs_review),
         global_score: response.map(|r| r.global.score),
@@ -533,14 +547,15 @@ fn csv_field(text: &str) -> String {
 
 fn to_csv(records: &[Record]) -> String {
     let mut out = String::from(
-        "name,verdict,needs_review,global_score,patch_score,severity,defect_probability,shift_warning,error\n",
+        "name,product,verdict,needs_review,global_score,patch_score,severity,defect_probability,shift_warning,error\n",
     );
     for record in records {
         let s = summarize(record);
         let number = |v: Option<f32>| v.map(|n| format!("{n:.4}")).unwrap_or_default();
         out.push_str(&format!(
-            "{},{},{},{},{},{},{},{},{}\n",
+            "{},{},{},{},{},{},{},{},{},{}\n",
             csv_field(&s.name),
+            csv_field(&s.product.unwrap_or_default()),
             s.verdict.unwrap_or_default(),
             s.needs_review,
             number(s.global_score),
@@ -577,9 +592,13 @@ pub async fn create(
     }
 
     let mut uploads = Vec::new();
+    let mut product = None;
     let mut total = 0u64;
     while let Some(mut field) = multipart.next_field().await.map_err(bad_request)? {
         let Some(name) = field.file_name().map(str::to_string) else {
+            if field.name() == Some("product") {
+                product = product_choice(field.text().await.map_err(bad_request)?);
+            }
             continue;
         };
         let path = incoming.join(format!("{}.part", uploads.len()));
@@ -604,6 +623,18 @@ pub async fn create(
         return Err(bad_request("no files in the upload"));
     }
 
+    // Fail now, not once per image, when the chosen product does not exist.
+    if let Some(wanted) = &product {
+        if !state
+            .model
+            .products()
+            .iter()
+            .any(|(name, _)| name == wanted)
+        {
+            let _ = tokio::fs::remove_dir_all(&dir).await;
+            return Err(bad_request(format!("unknown product '{wanted}'")));
+        }
+    }
     let job = Arc::new(Job::new("preparing"));
     state
         .batches
@@ -612,7 +643,7 @@ pub async fn create(
         .map_err(internal)?
         .insert(id.clone(), job.clone());
     let worker_state = state.clone();
-    tokio::task::spawn_blocking(move || run_job(worker_state, job, dir, uploads));
+    tokio::task::spawn_blocking(move || run_job(worker_state, job, dir, uploads, product));
     Ok(Json(Created { batch_id: id }))
 }
 
@@ -898,7 +929,7 @@ mod tests {
 
         let job = Job::new("preparing");
         let names = ["good.png", "bad.png", "mask.png"].map(String::from);
-        process(&state, &job, &batch, &names).expect("process");
+        process(&state, &job, &batch, &names, None).expect("process");
 
         assert_eq!(job.done.load(Ordering::Relaxed), 3);
         let records = read_records(&batch.join(RESULTS_FILE)).expect("results file");
@@ -906,8 +937,8 @@ mod tests {
         assert_eq!(records.iter().filter(|r| r.error.is_some()).count(), 2);
         assert!(batch.join(THUMBS_DIR).join("good.png.jpg").exists());
         let csv = to_csv(&records);
-        assert!(csv.starts_with("name,verdict"));
-        assert!(csv.contains("good.png,Defect,false"));
+        assert!(csv.starts_with("name,product,verdict"));
+        assert!(csv.contains("good.png,stub,Defect,false"));
     }
 
     #[test]
@@ -921,6 +952,7 @@ mod tests {
         fs::create_dir_all(&batch).expect("create batch dir");
 
         let p1 = PredictionResponse {
+            product: None,
             verdict: "Good".to_string(),
             needs_review: false,
             global: ModelResponse {
@@ -938,6 +970,7 @@ mod tests {
             log: Vec::new(),
         };
         let p2 = PredictionResponse {
+            product: None,
             verdict: "Uncertain".to_string(),
             needs_review: true,
             global: ModelResponse {

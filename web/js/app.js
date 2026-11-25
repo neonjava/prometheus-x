@@ -62,7 +62,7 @@ async function refreshStatus() {
   try {
     const s = await getStatus();
     pill.className = 'status-pill ready';
-    pill.innerHTML = `<i class="status-dot"></i><span>Model ready <span class="long">· <b>${formatNumber(s.good_vectors)}</b> good images learned</span></span>`;
+    pill.innerHTML = `<i class="status-dot"></i><span>Model ready <span class="long">· <b>${s.products.length}</b> products learned</span></span>`;
   } catch (err) {
     pill.className = 'status-pill down';
     pill.innerHTML = `<i class="status-dot"></i><span>Server offline</span>`;

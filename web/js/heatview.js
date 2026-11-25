@@ -90,6 +90,9 @@ function reasons(result, spots) {
 const HEADINGS = { Good: 'Why it passed', Defect: 'Why it was rejected', Uncertain: 'Why it needs a person' };
 
 function whyHtml(result, spots) {
+  if (result.verdict === 'Unknown') {
+    return `<div class="why"><h3>Why it was not judged</h3><p>The closest learned product is <b>${esc(result.product)}</b>, but this photo is ${(result.global.score / result.global.threshold).toFixed(1)} times its limit away.</p></div>`;
+  }
   const spotCards = spots
     .map(
       (s, i) => `<figure class="spot"><canvas width="${CROP_PX}" height="${CROP_PX}" data-spot="${i}"></canvas>

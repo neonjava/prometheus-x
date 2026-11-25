@@ -25,6 +25,7 @@ const TILES = [
   ['review', 'Needs review', 'review'],
   ['defect', 'Defect', 'defect'],
   ['shift', 'Shift warnings', 'shift'],
+  ['unknown', 'Unknown product', ''],
   ['error', 'Errors', ''],
 ];
 
@@ -48,7 +49,7 @@ function urgency(item) {
   const cat = category(item);
   if (cat === 'defect') return RANK_DEFECT + (SEVERITY_RANK[item.severity] ?? 0) * 100 + (item.defect_probability ?? 0) * 10;
   if (cat === 'review') return RANK_REVIEW + (item.patch_score ?? item.global_score ?? 0);
-  if (cat === 'error') return RANK_ERROR;
+  if (cat === 'error' || cat === 'unknown') return RANK_ERROR;
   return item.patch_score ?? item.global_score ?? 0;
 }
 
@@ -345,7 +346,7 @@ export function mountBatch(root) {
   }
 
   function counts() {
-    const c = { all: activeBatch.total || activeBatch.items.length, ok: 0, review: 0, defect: 0, shift: 0, error: 0 };
+    const c = { all: activeBatch.total || activeBatch.items.length, ok: 0, review: 0, defect: 0, shift: 0, unknown: 0, error: 0 };
     for (const item of activeBatch.items) {
       c[category(item)] += 1;
       if (item.shift_warning) c.shift += 1;
@@ -391,7 +392,7 @@ export function mountBatch(root) {
         <span class="pick" data-pick title="Select">${icon('check')}</span>
       </div>
       <div class="name" title="${esc(item.name)}">${esc(item.name)}</div>
-      <div class="meta"><span>${score == null ? '' : `score ${score.toFixed(2)}`}</span>${right}</div>
+      <div class="meta"><span>${esc(item.product ?? '')}${score == null ? '' : ` · ${score.toFixed(2)}`}</span>${right}</div>
     </div>`;
   }
 

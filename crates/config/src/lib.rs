@@ -82,6 +82,12 @@ pub struct Config {
     pub thumb_size: u32,
     /// Images whose average brightness (0-255) is below this are rejected as blank, not judged.
     pub min_mean_brightness: f32,
+    /// Each sub-folder with a trained model is one product.
+    pub products_dir: PathBuf,
+    /// Name shown for the model at `good_vectors_path`.
+    pub default_product: String,
+    /// A photo farther than this multiple of the closest product's limit is an unknown product.
+    pub unknown_ratio: f32,
     /// Images per class (good, defect) used by the robustness test.
     pub robustness_sample: usize,
     #[serde(default)]
@@ -134,6 +140,9 @@ impl Config {
                 "min_mean_brightness must be in 0..=255".into(),
             ));
         }
+        if self.unknown_ratio <= 1.0 {
+            return Err(ConfigError::Invalid("unknown_ratio must be > 1".into()));
+        }
         if self.patch_bank_size == 0 {
             return Err(ConfigError::Invalid("patch_bank_size must be > 0".into()));
         }
@@ -182,6 +191,9 @@ max_batch_files = 10
 batch_workers = 1
 thumb_size = 64
 min_mean_brightness = 10.0
+products_dir = "p"
+default_product = "x"
+unknown_ratio = 3.0
 robustness_sample = 5
 
 [[perturbations]]
