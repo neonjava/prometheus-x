@@ -19,8 +19,8 @@ pub enum DataError {
     },
 }
 
-// Reads all images from a directory, skipping non-image files.
-pub fn load_images(path: &Path) -> Result<Vec<(PathBuf, DynamicImage)>> {
+/// Lists image files in a directory (not recursive), sorted by path.
+pub fn list_images(path: &Path) -> Result<Vec<PathBuf>> {
     if !path.exists() {
         return Err(DataError::NotFound {
             path: path.to_path_buf(),
@@ -32,33 +32,37 @@ pub fn load_images(path: &Path) -> Result<Vec<(PathBuf, DynamicImage)>> {
         });
     }
 
-    let read_dir = std::fs::read_dir(path).map_err(|source| DataError::Io {
+    let io_err = |source| DataError::Io {
         path: path.to_path_buf(),
         source,
-    })?;
-
-    let mut images = Vec::new();
-    for entry_res in read_dir {
-        let entry = entry_res.map_err(|source| DataError::Io {
-            path: path.to_path_buf(),
-            source,
-        })?;
-        let entry_path = entry.path();
-        // Skip subdirectories to avoid recursing into nested folders.
-        if !entry_path.is_file() {
-            continue;
-        }
-
-        // Attempt image decode; skip files that are not valid images.
-        if let Ok(img) = image::open(&entry_path) {
-            images.push((entry_path, img));
+    };
+    let mut files = Vec::new();
+    for entry in std::fs::read_dir(path).map_err(io_err)? {
+        let entry_path = entry.map_err(io_err)?.path();
+        if entry_path.is_file() && is_image_extension(&entry_path) {
+            files.push(entry_path);
         }
     }
+    // Sorted so results are the same on every machine.
+    files.sort();
+    Ok(files)
+}
 
-    // Sort by path for deterministic ordering across environments.
-    images.sort_by(|(a, _), (b, _)| a.cmp(b));
-
+/// Reads all images from a directory, skipping files that are not images.
+pub fn load_images(path: &Path) -> Result<Vec<(PathBuf, DynamicImage)>> {
+    let mut images = Vec::new();
+    for file in list_images(path)? {
+        if let Ok(img) = image::open(&file) {
+            images.push((file, img));
+        }
+    }
     Ok(images)
+}
+
+fn is_image_extension(path: &Path) -> bool {
+    path.extension()
+        .and_then(|ext| ext.to_str())
+        .is_some_and(|ext| image::ImageFormat::from_extension(ext).is_some())
 }
 
 #[cfg(test)]
@@ -113,6 +117,15 @@ mod tests {
         assert_eq!(loaded.len(), 2);
         assert_eq!(loaded[0].0, img1);
         assert_eq!(loaded[1].0, img2);
+    }
+
+    #[test]
+    fn list_images_filters_by_extension() {
+        let temp = TempDir::new("list");
+        write_synthetic_image(&temp.path().join("a.png"), [1, 2, 3]);
+        std::fs::write(temp.path().join("notes.txt"), b"x").expect("write file");
+        let listed = list_images(temp.path()).expect("list images");
+        assert_eq!(listed, vec![temp.path().join("a.png")]);
     }
 
     #[test]

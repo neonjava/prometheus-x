@@ -1,0 +1,14 @@
+[package]
+name = "detector"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+analysis = { path = "../analysis" }
+config = { path = "../config" }
+data = { path = "../data" }
+features = { path = "../features" }
+image = "0.25.10"
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.149"
+thiserror = "2.0.21"

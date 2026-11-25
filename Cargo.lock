@@ -570,6 +570,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "detector"
+version = "0.1.0"
+dependencies = [
+ "analysis",
+ "config",
+ "data",
+ "features",
+ "image",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "dyn-stack"
 version = "0.13.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"

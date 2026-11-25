@@ -4,6 +4,7 @@ members = [
     "crates/analysis",
     "crates/config",
     "crates/data",
+    "crates/detector",
     "crates/features",
     "crates/server",
 ]

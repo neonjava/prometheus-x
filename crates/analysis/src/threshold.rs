@@ -8,6 +8,10 @@ pub enum AnalysisError {
     InvalidPercentile(f32),
     #[error("score cannot be NaN")]
     InvalidScore,
+    #[error("scores and labels must have the same length")]
+    LengthMismatch,
+    #[error("need at least one good and one defect image")]
+    NeedBothClasses,
 }
 
 // Compute threshold from validation scores at the specified percentile using linear interpolation.
