@@ -1,11 +1,13 @@
 use std::path::PathBuf;
 
 use candle_core::{DType, Device, Tensor};
-use candle_nn::{Func, Module, VarBuilder};
-use candle_transformers::models::resnet;
+use candle_nn::VarBuilder;
 use config::Config;
 use image::{imageops::FilterType, DynamicImage};
 use thiserror::Error;
+
+mod trunk;
+use trunk::{Stages, Trunk};
 
 const IMAGENET_MEAN: [f32; 3] = [0.485, 0.456, 0.406];
 const IMAGENET_STD: [f32; 3] = [0.229, 0.224, 0.225];
@@ -26,7 +28,7 @@ pub enum FeaturesError {
 }
 
 pub struct Extractor {
-    model: Func<'static>,
+    model: Trunk,
     input_size: usize,
     device: Device,
 }
@@ -51,7 +53,7 @@ impl Extractor {
                 source,
             })?;
         let vb = VarBuilder::from_buffered_safetensors(bytes, DType::F32, &device)?;
-        let model = resnet::resnet18_no_final_layer(vb)?;
+        let model = Trunk::load(vb)?;
 
         Ok(Self {
             model,
@@ -61,10 +63,41 @@ impl Extractor {
     }
 
     pub fn extract(&self, image: &DynamicImage) -> Result<Vec<f32>, FeaturesError> {
-        let input = preprocess(image, self.input_size, &self.device)?;
-        let features = self.model.forward(&input)?;
-        Ok(features.squeeze(0)?.to_vec1::<f32>()?)
+        Ok(self.stages(image)?.pooled.squeeze(0)?.to_vec1::<f32>()?)
     }
+
+    /// Global vector plus one feature row per image patch, from a single forward pass.
+    pub fn extract_all(&self, image: &DynamicImage) -> Result<ImageFeatures, FeaturesError> {
+        let stages = self.stages(image)?;
+        let (patches, grid) = patch_rows(&stages)?;
+        Ok(ImageFeatures {
+            global: stages.pooled.squeeze(0)?.to_vec1::<f32>()?,
+            patches,
+            grid,
+        })
+    }
+
+    fn stages(&self, image: &DynamicImage) -> Result<Stages, FeaturesError> {
+        let input = preprocess(image, self.input_size, &self.device)?;
+        Ok(self.model.forward(&input)?)
+    }
+}
+
+/// Features of one image: a global vector and a `(h * w, channels)` patch matrix.
+pub struct ImageFeatures {
+    pub global: Vec<f32>,
+    pub patches: Tensor,
+    pub grid: (usize, usize),
+}
+
+// layer3 is upsampled to layer2's grid and stacked, so each patch sees both scales.
+fn patch_rows(stages: &Stages) -> Result<(Tensor, (usize, usize)), FeaturesError> {
+    let (_, _, h, w) = stages.layer2.dims4()?;
+    let layer3 = stages.layer3.upsample_nearest2d(h, w)?;
+    let channels = Tensor::cat(&[&stages.layer2, &layer3], 1)?.squeeze(0)?;
+    let depth = channels.dim(0)?;
+    let rows = channels.reshape((depth, h * w))?.t()?.contiguous()?;
+    Ok((rows, (h, w)))
 }
 
 fn preprocess(
@@ -94,6 +127,7 @@ fn preprocess(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use candle_nn::Module;
     use candle_nn::VarMap;
     use image::{Rgb, RgbImage};
     use std::path::Path;
@@ -109,7 +143,8 @@ mod tests {
     fn write_test_weights(path: &Path) {
         let varmap = VarMap::new();
         let vb = VarBuilder::from_varmap(&varmap, DType::F32, &Device::Cpu);
-        let _model = resnet::resnet18_no_final_layer(vb).expect("build resnet18 graph");
+        let _model = candle_transformers::models::resnet::resnet18_no_final_layer(vb)
+            .expect("build resnet18 graph");
         varmap.save(path).expect("save test safetensors");
     }
 
@@ -161,6 +196,33 @@ mod tests {
         assert_eq!(v1.len(), 512);
         assert!(v1.iter().all(|x| x.is_finite()));
         assert_eq!(v1, v2);
+    }
+
+    #[test]
+    fn trunk_matches_candle_resnet_output() {
+        let weights = temp_weights_path("trunk");
+        let device = Device::Cpu;
+        let bytes = std::fs::read(&weights.0).expect("read weights");
+        let vb = VarBuilder::from_buffered_safetensors(bytes, DType::F32, &device).expect("vb");
+        let candle_model = candle_transformers::models::resnet::resnet18_no_final_layer(vb)
+            .expect("candle resnet");
+        let extractor =
+            Extractor::load(&test_config(weights.0.clone(), 64)).expect("load extractor");
+        let image = synthetic_image(30);
+
+        let input = preprocess(&image, 64, &device).expect("preprocess");
+        let expected = candle_model
+            .forward(&input)
+            .expect("candle forward")
+            .squeeze(0)
+            .expect("squeeze")
+            .to_vec1::<f32>()
+            .expect("vec");
+        let all = extractor.extract_all(&image).expect("extract_all");
+
+        assert_eq!(all.global, expected);
+        assert_eq!(all.grid, (8, 8));
+        assert_eq!(all.patches.dims(), &[64, 384]);
     }
 
     #[test]
