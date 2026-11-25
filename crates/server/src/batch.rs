@@ -17,7 +17,6 @@ use tokio::io::AsyncWriteExt;
 
 use crate::responses::PredictionResponse;
 use crate::state::{bad_request, internal, not_found, ApiError, Shared};
-use detector::Verdict;
 
 const RESULTS_FILE: &str = "results.jsonl";
 const IMAGES_DIR: &str = "images";
@@ -253,7 +252,7 @@ impl Batches {
                                 batch_name: batch.id.clone(),
                                 image: key,
                                 name: r.name.clone(),
-                                verdict: resp.verdict.as_str().to_string(),
+                                verdict: resp.verdict.clone(),
                                 thumb_url: format!("/batch/{}/thumb/{}", batch.id, r.name),
                                 time_unix: batch.time,
                                 global_score: Some(resp.global.score),
@@ -285,7 +284,7 @@ fn compute_counts(total: usize, done: usize, records: &[Record]) -> BatchCounts 
         } else if let Some(resp) = &r.response {
             if resp.needs_review {
                 review += 1;
-            } else if resp.verdict == Verdict::Defect {
+            } else if resp.verdict == "Defect" {
                 defect += 1;
             } else {
                 ok += 1;
