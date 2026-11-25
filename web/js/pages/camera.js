@@ -14,8 +14,9 @@ const STALE_MS = 3000;
 // A single odd frame (motion blur, a hand) should not raise the alarm.
 const VOTES = 3;
 const VOTES_NEEDED = 2;
-// An added object covers many patches; one or two lit patches are glare or blur.
-const MIN_SPOT_CELLS = 3;
+// An added object covers several patches; fewer are glare or blur.
+const MIN_SPOT_CELLS = 4;
+const EDGE_CELLS = 1;
 
 const LABELS = { Good: 'Looks normal', Defect: 'Anomaly found', Uncertain: 'Not sure' };
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -100,8 +101,9 @@ export function mountCamera(root) {
   }
 
   function showVerdict(result) {
-    const spots = liveSpots(result, MIN_SPOT_CELLS);
-    const frame = result.verdict === 'Defect' && !spots.length ? 'Good' : result.verdict;
+    const spots = liveSpots(result, MIN_SPOT_CELLS, EDGE_CELLS);
+    // Live, the spots decide: there is no person to review each frame.
+    const frame = spots.length ? 'Defect' : 'Good';
     state.recent = [...state.recent, frame].slice(-VOTES);
     const verdict = steadyVerdict(state.recent);
     const banner = $('#verdict');

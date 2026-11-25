@@ -225,10 +225,18 @@ export function mountHeatView(host, src, result) {
   return () => observer.disconnect();
 }
 
-/** Spots covering at least `minCells` patches; smaller ones are usually camera noise. */
-export function liveSpots(result, minCells) {
+/** Spots of at least `minCells` patches, ignoring `edge` patches around the frame, where
+ *  background objects and half-visible cable ends appear. */
+export function liveSpots(result, minCells, edge) {
   if (!result.patch) return [];
-  return findSpots(result.finding, result.patch.threshold).filter((s) => s.cells >= minCells);
+  const { grid, map } = result.finding;
+  const [rows, cols] = grid;
+  const inner = map.map((value, i) => {
+    const x = i % cols;
+    const y = Math.floor(i / cols);
+    return x >= edge && x < cols - edge && y >= edge && y < rows - edge ? value : 0;
+  });
+  return findSpots({ grid, map: inner }, result.patch.threshold).filter((s) => s.cells >= minCells);
 }
 
 /** Paints heat and boxes for `spots` only, over the live camera view. */
