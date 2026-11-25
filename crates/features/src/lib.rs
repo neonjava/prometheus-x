@@ -182,6 +182,10 @@ mod tests {
             patch_bank_path: PathBuf::new(),
             patch_bank_size: 1,
             patch_seed: 0,
+            shift_percentile: 99.0,
+            severity_low_max: 1.0,
+            severity_med_max: 2.0,
+            decisions_path: PathBuf::new(),
         }
     }
 

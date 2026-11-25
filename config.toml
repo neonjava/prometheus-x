@@ -13,3 +13,7 @@ device = "cpu"
 patch_bank_path = "models/patch_bank.safetensors"
 patch_bank_size = 30000
 patch_seed = 42
+shift_percentile = 99.0
+severity_low_max = 1.0
+severity_med_max = 3.0
+decisions_path = "data/decisions.jsonl"

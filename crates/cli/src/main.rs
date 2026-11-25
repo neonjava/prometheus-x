@@ -5,7 +5,7 @@ use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use config::Config;
 use detector::store::{build_reference, open_image};
-use detector::{ModelResult, Prediction, Predictor, Verdict};
+use detector::{ModelResult, Predictor, Verdict};
 use features::Extractor;
 
 #[derive(Parser)]
@@ -69,30 +69,47 @@ fn print_model(name: &str, model: &ModelResult) {
 fn predict(cfg: &Config, image_path: &Path) -> Result<()> {
     let predictor = Predictor::load(cfg)?;
     let prediction = predictor.predict(&open_image(image_path)?)?;
+    for line in &prediction.log {
+        println!("[{:>4} ms] {}", line.ms, line.message);
+    }
     println!(
         "verdict={} needs_review={}",
         prediction.verdict, prediction.needs_review
     );
     print_model("global", &prediction.global);
-    print_model("patch", &prediction.patch);
+    if let Some(patch) = &prediction.patch {
+        print_model("patch", patch);
+    }
     Ok(())
 }
 
-fn predict_dir(predictor: &Predictor, dir: &Path) -> Result<Vec<Prediction>> {
+/// A prediction where both models ran.
+struct Full {
+    verdict: Verdict,
+    global: ModelResult,
+    patch: ModelResult,
+}
+
+fn analyze_dir(predictor: &Predictor, dir: &Path) -> Result<Vec<Full>> {
     data::list_images(dir)?
         .iter()
         .map(|path| {
-            let image = open_image(path)?;
-            predictor.predict(&image).map_err(Into::into)
+            let p = predictor.analyze(&open_image(path)?, true)?;
+            let patch = p.patch.context("patch model did not run")?;
+            Ok(Full {
+                verdict: p.verdict,
+                global: p.global,
+                patch,
+            })
         })
         .collect()
 }
 
 fn print_metrics(
     name: &str,
-    good: &[Prediction],
-    defect: &[Prediction],
-    pick: impl Fn(&Prediction) -> ModelResult,
+    good: &[Full],
+    defect: &[Full],
+    pick: impl Fn(&Full) -> ModelResult,
 ) -> Result<()> {
     let results: Vec<ModelResult> = good.iter().chain(defect).map(&pick).collect();
     let scores: Vec<f32> = results.iter().map(|r| r.score).collect();
@@ -109,8 +126,8 @@ fn print_metrics(
     Ok(())
 }
 
-fn print_zones(name: &str, predictions: &[Prediction]) {
-    let count = |wanted| predictions.iter().filter(|p| p.verdict == wanted).count();
+fn print_zones(name: &str, results: &[Full]) {
+    let count = |wanted| results.iter().filter(|r| r.verdict == wanted).count();
     println!(
         "{name}: Good {} / Uncertain {} / Defect {}",
         count(Verdict::Good),
@@ -121,13 +138,13 @@ fn print_zones(name: &str, predictions: &[Prediction]) {
 
 fn evaluate(cfg: &Config) -> Result<()> {
     let predictor = Predictor::load(cfg)?;
-    let good = predict_dir(&predictor, &cfg.test_dir.join("good")).context("test/good")?;
-    let defect = predict_dir(&predictor, &cfg.test_dir.join("defect")).context("test/defect")?;
+    let good = analyze_dir(&predictor, &cfg.test_dir.join("good")).context("test/good")?;
+    let defect = analyze_dir(&predictor, &cfg.test_dir.join("defect")).context("test/defect")?;
 
     println!("images: {} good, {} defect", good.len(), defect.len());
-    print_metrics("global", &good, &defect, |p| p.global)?;
-    print_metrics("patch", &good, &defect, |p| p.patch)?;
-    println!("fused verdicts:");
+    print_metrics("global", &good, &defect, |r| r.global)?;
+    print_metrics("patch", &good, &defect, |r| r.patch)?;
+    println!("final verdicts (Step 1 pass, else Step 2 fusion):");
     print_zones("  good  ", &good);
     print_zones("  defect", &defect);
     Ok(())

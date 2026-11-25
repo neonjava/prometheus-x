@@ -6,179 +6,187 @@
   <title>Prometheus-X | Defect Detection</title>
   <style>
     :root {
-      --green: #2e7d32; --green-light: #4caf50; --green-tint: #e8f5e9; --green-line: #c8e6c9;
-      --green-grad: linear-gradient(135deg, #4caf50 0%, #2e7d32 100%);
-      --bg: #f4f8f5; --surface: rgba(255, 255, 255, 0.78); --surface-card: rgba(255, 255, 255, 0.88);
-      --text: #1b382b; --text-muted: #4e6b5d; --border: rgba(200, 230, 201, 0.7); --border-line: rgba(255, 255, 255, 0.9);
-      --r-xl: 1.5rem; --r-lg: 1rem; --r-pill: 999px;
-      --shadow-mac: inset 0 1px 0 rgba(255, 255, 255, 0.95), 0 2px 8px rgba(46, 125, 50, 0.06), 0 20px 40px -15px rgba(30, 80, 45, 0.22);
+      --bg: #f4f8f5; --card: #fbfdfb; --line: #dbe8de; --text: #3f5a4c; --muted: #7b9487;
+      --green: #6fa383; --green-tint: #e9f3ec; --red: #c9827c; --red-tint: #f7e9e7;
+      --amber: #c9ab6a; --amber-tint: #f8f1e1; --console: #eef4f0;
     }
     * { box-sizing: border-box; margin: 0; padding: 0; }
-    body {
-      min-height: 100vh; font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", Roboto, sans-serif;
-      color: var(--text); background: var(--bg); display: flex; flex-direction: column; align-items: center;
-      padding: 2rem 1rem; position: relative; overflow-x: hidden;
-    }
-    body::before {
-      content: ""; position: fixed; inset: 0; z-index: -2; pointer-events: none;
-      background: radial-gradient(60% 65% at 10% 10%, rgba(200, 230, 201, 0.6), transparent 70%),
-                  radial-gradient(55% 55% at 90% 15%, rgba(232, 245, 233, 0.8), transparent 70%),
-                  radial-gradient(65% 65% at 85% 90%, rgba(165, 214, 167, 0.45), transparent 70%),
-                  linear-gradient(160deg, #f7faf8 0%, #eef6f1 50%, #f4f8f5 100%);
-    }
-    #leaves-canvas { position: fixed; inset: 0; z-index: -1; pointer-events: none; }
-    .mac-nav {
-      background: var(--surface); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
-      border: 1px solid var(--border-line); border-radius: var(--r-pill); padding: 0.5rem 1.25rem;
-      box-shadow: 0 4px 20px -6px rgba(46, 125, 50, 0.15); display: flex; align-items: center; gap: 0.6rem;
-      margin-bottom: 1.5rem; font-size: 0.9rem; font-weight: 500;
-    }
-    .status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--green-light); box-shadow: 0 0 6px var(--green-light); }
-    .mac-window {
-      width: 100%; max-width: 620px; background: var(--surface-card); backdrop-filter: blur(24px);
-      -webkit-backdrop-filter: blur(24px); border: 1px solid var(--border-line); border-radius: var(--r-xl);
-      box-shadow: var(--shadow-mac); overflow: hidden;
-    }
-    .mac-titlebar {
-      background: rgba(240, 248, 242, 0.7); border-bottom: 1px solid var(--border);
-      padding: 0.65rem 1rem; display: flex; align-items: center; position: relative;
-    }
-    .mac-dots { display: flex; gap: 7px; }
-    .mac-dot { width: 11px; height: 11px; border-radius: 50%; }
-    .mac-dot.close { background: #ff5f56; } .mac-dot.min { background: #ffbd2e; } .mac-dot.max { background: #27c93f; }
-    .mac-title { position: absolute; left: 50%; transform: translateX(-50%); font-size: 0.82rem; font-weight: 600; color: var(--text-muted); }
-    .mac-body { padding: 1.75rem; }
-    h1 { font-size: 1.4rem; font-weight: 700; margin-bottom: 0.35rem; }
-    p.subtitle { font-size: 0.9rem; color: var(--text-muted); margin-bottom: 1.25rem; }
-    .upload-zone {
-      border: 2px dashed #81c784; background: var(--green-tint); border-radius: var(--r-lg);
-      padding: 1.25rem; text-align: center; cursor: pointer; transition: background 0.2s;
-    }
-    .upload-zone:hover { background: #e0f2e1; }
-    .upload-zone input { display: none; }
-    .upload-label { cursor: pointer; font-weight: 600; color: var(--green); font-size: 0.92rem; }
-    .btn-predict {
-      margin-top: 1rem; width: 100%; padding: 0.7rem 1.25rem; font-size: 0.95rem; font-weight: 600;
-      color: #fff; background: var(--green-grad); border: none; border-radius: var(--r-pill);
-      box-shadow: 0 4px 14px rgba(46, 125, 50, 0.3); cursor: pointer;
-    }
-    .btn-predict:disabled { opacity: 0.6; cursor: not-allowed; }
-    #preview-container { margin-top: 1.25rem; text-align: center; display: none; }
-    #preview { max-width: 100%; max-height: 280px; border-radius: var(--r-lg); border: 1px solid var(--border); box-shadow: 0 4px 12px rgba(0,0,0,0.06); }
-    #result-box {
-      margin-top: 1.25rem; padding: 1rem; border-radius: var(--r-lg);
-      background: rgba(232, 245, 233, 0.85); border: 1px solid var(--green-line); display: none;
-    }
-    .metric-row { display: flex; justify-content: space-between; align-items: center; padding: 0.35rem 0; font-size: 0.95rem; }
-    .badge { padding: 0.2rem 0.7rem; border-radius: var(--r-pill); font-weight: 700; font-size: 0.82rem; background: var(--green); color: #fff; }
-    .badge.Defect { background: #c0605a; } .badge.Uncertain { background: #c9a24b; }
-    .score-val { font-family: ui-monospace, Menlo, monospace; font-weight: 700; color: var(--green); }
-    #error-box { margin-top: 0.85rem; padding: 0.65rem 0.85rem; border-radius: var(--r-lg); background: #ffebee; border: 1px solid #ffcdd2; color: #c62828; font-size: 0.85rem; display: none; }
-    @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } #leaves-canvas { display: none; } }
+    body { min-height: 100vh; font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; color: var(--text); background: var(--bg); padding: 1.5rem 1rem; }
+    header { max-width: 1100px; margin: 0 auto 1.25rem; }
+    h1 { font-size: 1.3rem; font-weight: 650; }
+    .subtitle { font-size: 0.88rem; color: var(--muted); margin-top: 0.2rem; }
+    main { max-width: 1100px; margin: 0 auto; display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; align-items: start; }
+    @media (max-width: 860px) { main { grid-template-columns: 1fr; } }
+    .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 1.1rem; }
+    .card h2 { font-size: 0.78rem; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); margin-bottom: 0.7rem; font-weight: 600; }
+    .stack { display: grid; gap: 1rem; }
+    #drop-zone { border: 2px dashed #a9cbb6; background: var(--green-tint); border-radius: 12px; padding: 1.4rem; text-align: center; cursor: pointer; transition: background 0.15s; font-size: 0.92rem; color: var(--green); }
+    #drop-zone.over { background: #dcece1; }
+    #image-input { display: none; }
+    button.primary { margin-top: 0.8rem; width: 100%; padding: 0.65rem; font-size: 0.93rem; font-weight: 600; border: none; border-radius: 10px; background: var(--green); color: #fff; cursor: pointer; }
+    button.primary:disabled { opacity: 0.55; cursor: not-allowed; }
+    #preview-wrap { position: relative; display: none; margin-top: 0.9rem; line-height: 0; }
+    #preview { width: 100%; border-radius: 10px; border: 1px solid var(--line); }
+    #heat { position: absolute; inset: 0; width: 100%; height: 100%; border-radius: 10px; pointer-events: none; }
+    #heat-toggle { display: none; margin-top: 0.5rem; font-size: 0.82rem; color: var(--muted); }
+    #console { height: 320px; overflow-y: auto; background: var(--console); border: 1px solid var(--line); border-radius: 10px; padding: 0.7rem 0.8rem; font: 0.8rem/1.55 ui-monospace, Menlo, Consolas, monospace; color: #4d6a5b; }
+    #console .t { color: var(--muted); }
+    #console .ok { color: #5e9573; } #console .warn { color: #b9964f; } #console .bad { color: #bd6f69; }
+    .banner { padding: 0.9rem 1rem; border-radius: 12px; font-weight: 650; font-size: 1.05rem; }
+    .banner small { display: block; font-weight: 400; font-size: 0.84rem; margin-top: 0.25rem; opacity: 0.85; }
+    .banner.Good { background: var(--green-tint); color: #4f8a66; }
+    .banner.Defect { background: var(--red-tint); color: #b0605a; }
+    .banner.Uncertain { background: var(--amber-tint); color: #a8832f; }
+    .rows { margin-top: 0.8rem; display: grid; gap: 0.35rem; font-size: 0.88rem; }
+    .row { display: flex; justify-content: space-between; gap: 1rem; }
+    .row span:last-child { font-family: ui-monospace, Menlo, monospace; color: var(--muted); text-align: right; }
+    .shift { margin-top: 0.8rem; padding: 0.6rem 0.8rem; border-radius: 10px; background: var(--amber-tint); color: #a8832f; font-size: 0.85rem; display: none; }
+    #review { margin-top: 0.9rem; display: none; }
+    #review p { font-size: 0.88rem; margin-bottom: 0.55rem; }
+    .actions { display: flex; gap: 0.5rem; }
+    .actions button { flex: 1; padding: 0.55rem; border-radius: 9px; border: 1px solid var(--line); background: #fff; color: var(--text); font-weight: 600; cursor: pointer; }
+    .actions button:hover { background: var(--green-tint); }
+    #saved { margin-top: 0.5rem; font-size: 0.82rem; color: #5e9573; }
+    #error { display: none; margin-top: 0.8rem; padding: 0.6rem 0.8rem; border-radius: 10px; background: var(--red-tint); color: #b0605a; font-size: 0.85rem; }
+    #result { display: none; }
   </style>
 </head>
 <body>
-  <canvas id="leaves-canvas"></canvas>
-  <nav class="mac-nav"><span class="status-dot"></span><span>Prometheus-X Live Inspection</span></nav>
-  <main class="mac-window">
-    <div class="mac-titlebar">
-      <div class="mac-dots"><span class="mac-dot close"></span><span class="mac-dot min"></span><span class="mac-dot max"></span></div>
-      <span class="mac-title">predict.app &mdash; PCB Quality Analyzer</span>
-    </div>
-    <div class="mac-body">
-      <h1>Defect Detection</h1>
-      <p class="subtitle">Upload a PCB photo to evaluate quality verdict and anomaly score.</p>
-      <form id="upload-form">
-        <div class="upload-zone" id="drop-zone">
+  <header>
+    <h1>Prometheus-X</h1>
+    <p class="subtitle">Photo → quick check → closer look → person decides. Trained on good images only.</p>
+  </header>
+  <main>
+    <div class="stack">
+      <section class="card">
+        <h2>Add image</h2>
+        <form id="upload-form">
+          <div id="drop-zone">Click or drop a product photo here</div>
           <input type="file" id="image-input" name="image" accept="image/*" required>
-          <label for="image-input" class="upload-label" id="file-label">Click or drag &amp; drop an image here</label>
+          <button type="submit" class="primary" id="submit-btn">Check image</button>
+        </form>
+        <div id="preview-wrap"><img id="preview" alt="Uploaded product"><canvas id="heat"></canvas></div>
+        <label id="heat-toggle"><input type="checkbox" id="heat-check" checked> show where (heatmap)</label>
+        <div id="error"></div>
+      </section>
+      <section class="card" id="result">
+        <h2>Result</h2>
+        <div class="banner" id="banner"></div>
+        <div class="shift" id="shift"></div>
+        <div class="rows" id="rows"></div>
+        <div id="review">
+          <p>Step 3: the two checks disagree. A person decides:</p>
+          <div class="actions">
+            <button type="button" data-decision="ok">OK</button>
+            <button type="button" data-decision="reject">Reject</button>
+            <button type="button" data-decision="fix">Fix</button>
+          </div>
+          <div id="saved"></div>
         </div>
-        <button type="submit" class="btn-predict" id="submit-btn">Run Predict</button>
-      </form>
-      <div id="error-box"></div>
-      <div id="preview-container"><img id="preview" alt="Uploaded PCB Preview"></div>
-      <div id="result-box">
-        <div class="metric-row"><span>Verdict:</span><span class="badge" id="verdict"></span></div>
-        <div class="metric-row"><span>Needs human review:</span><span class="score-val" id="review"></span></div>
-        <div class="metric-row"><span>Global check:</span><span class="score-val" id="global"></span></div>
-        <div class="metric-row"><span>Patch check:</span><span class="score-val" id="patch"></span></div>
-      </div>
+      </section>
     </div>
+    <section class="card">
+      <h2>Console</h2>
+      <div id="console"><span class="t">Waiting for an image…</span></div>
+    </section>
   </main>
   <script>
-    const canvas = document.getElementById('leaves-canvas'), ctx = canvas.getContext('2d');
-    let width = (canvas.width = window.innerWidth), height = (canvas.height = window.innerHeight);
-    window.addEventListener('resize', () => { width = canvas.width = window.innerWidth; height = canvas.height = window.innerHeight; });
-    const leaves = Array.from({ length: 20 }, () => ({
-      x: Math.random() * width, y: Math.random() * height, size: 9 + Math.random() * 12,
-      speedX: -0.25 + Math.random() * 0.5, speedY: 0.4 + Math.random() * 0.7,
-      angle: Math.random() * Math.PI * 2, spin: -0.015 + Math.random() * 0.03,
-      alpha: 0.25 + Math.random() * 0.35, hue: 120 + Math.random() * 25
-    }));
-    function drawLeaf(l) {
-      ctx.save(); ctx.translate(l.x, l.y); ctx.rotate(l.angle);
-      ctx.fillStyle = `hsla(${l.hue}, 45%, 45%, ${l.alpha})`; ctx.beginPath();
-      ctx.moveTo(0, -l.size / 2); ctx.quadraticCurveTo(l.size / 2, 0, 0, l.size / 2); ctx.quadraticCurveTo(-l.size / 2, 0, 0, -l.size / 2);
-      ctx.fill(); ctx.restore();
+    const $ = (id) => document.getElementById(id);
+    const input = $('image-input'), zone = $('drop-zone'), form = $('upload-form'), btn = $('submit-btn');
+    const consoleEl = $('console'), preview = $('preview'), heat = $('heat'), errorEl = $('error');
+    let lastResult = null, lastName = '';
+
+    const REPLAY_MS = 220;
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+    function clearConsole() { consoleEl.innerHTML = ''; }
+    function logLine(text, ms, cls) {
+      const div = document.createElement('div');
+      const stamp = document.createElement('span'); stamp.className = 't';
+      stamp.textContent = ms === null ? '        ' : `[${String(ms).padStart(4)} ms] `;
+      const body = document.createElement('span'); if (cls) body.className = cls; body.textContent = text;
+      div.append(stamp, body); consoleEl.append(div); consoleEl.scrollTop = consoleEl.scrollHeight;
     }
-    function animateLeaves() {
-      ctx.clearRect(0, 0, width, height);
-      for (const l of leaves) {
-        l.y += l.speedY; l.x += l.speedX + Math.sin(l.y * 0.01) * 0.35; l.angle += l.spin;
-        if (l.y > height + 20) { l.y = -20; l.x = Math.random() * width; }
-        drawLeaf(l);
-      }
-      requestAnimationFrame(animateLeaves);
+    const lineClass = (m) => /WARNING|looks odd/.test(m) ? 'warn' : /REJECTED/.test(m) ? 'bad' : /PASS|OK,|Step 1 passed/.test(m) ? 'ok' : '';
+
+    function showFile(file) {
+      lastName = file.name; preview.src = URL.createObjectURL(file);
+      $('preview-wrap').style.display = 'block'; zone.textContent = file.name;
+      clearConsole(); logLine(`Selected ${file.name}. Press "Check image".`, null);
+      $('result').style.display = 'none'; $('heat-toggle').style.display = 'none';
+      heat.getContext('2d').clearRect(0, 0, heat.width, heat.height); errorEl.style.display = 'none';
     }
-    requestAnimationFrame(animateLeaves);
-
-    const form = document.getElementById('upload-form'), imageInput = document.getElementById('image-input'),
-          fileLabel = document.getElementById('file-label'), previewContainer = document.getElementById('preview-container'),
-          preview = document.getElementById('preview'), resultBox = document.getElementById('result-box'),
-          verdictEl = document.getElementById('verdict'),           errorBox = document.getElementById('error-box'), reviewEl = document.getElementById('review'), globalEl = document.getElementById('global'), patchEl = document.getElementById('patch'), submitBtn = document.getElementById('submit-btn');
-
-    imageInput.addEventListener('change', () => {
-      errorBox.style.display = 'none'; const file = imageInput.files[0];
-      if (file) {
-        fileLabel.textContent = file.name; preview.src = URL.createObjectURL(file); previewContainer.style.display = 'block';
-      } else {
-        fileLabel.textContent = 'Click or drag & drop an image here'; preview.src = ''; previewContainer.style.display = 'none';
-      }
+    input.addEventListener('change', () => { if (input.files[0]) showFile(input.files[0]); });
+    zone.addEventListener('click', () => input.click());
+    ['dragenter', 'dragover'].forEach((ev) => zone.addEventListener(ev, (e) => { e.preventDefault(); zone.classList.add('over'); }));
+    ['dragleave', 'drop'].forEach((ev) => zone.addEventListener(ev, (e) => { e.preventDefault(); zone.classList.remove('over'); }));
+    zone.addEventListener('drop', (e) => {
+      if (e.dataTransfer.files.length) { input.files = e.dataTransfer.files; showFile(input.files[0]); }
     });
-
-
-    // The whole zone is clickable and accepts dropped files.
-    const dropZone = document.getElementById('drop-zone');
-    dropZone.addEventListener('click', (e) => { if (e.target !== imageInput && e.target !== fileLabel) imageInput.click(); });
-    ['dragenter', 'dragover'].forEach((ev) => dropZone.addEventListener(ev, (e) => { e.preventDefault(); dropZone.style.background = '#d7ecd9'; }));
-    ['dragleave', 'drop'].forEach((ev) => dropZone.addEventListener(ev, (e) => { e.preventDefault(); dropZone.style.background = ''; }));
-    dropZone.addEventListener('drop', (e) => {
-      if (e.dataTransfer.files.length) { imageInput.files = e.dataTransfer.files; imageInput.dispatchEvent(new Event('change')); }
-    });
-    // Stop the browser from opening a file dropped outside the zone.
     ['dragover', 'drop'].forEach((ev) => window.addEventListener(ev, (e) => e.preventDefault()));
 
-    const describe = (m) => `${m.vote} (score ${m.score.toFixed(2)} / threshold ${m.threshold.toFixed(2)})`;
+    function drawHeat(finding, threshold) {
+      const ctx = heat.getContext('2d');
+      heat.width = preview.clientWidth; heat.height = preview.clientHeight;
+      ctx.clearRect(0, 0, heat.width, heat.height);
+      if (!finding || !$('heat-check').checked) return;
+      const [rows, cols] = finding.grid, peak = Math.max(...finding.map), cw = heat.width / cols, ch = heat.height / rows;
+      finding.map.forEach((d, i) => {
+        if (d <= threshold) return;
+        const strength = Math.min(1, (d - threshold) / Math.max(peak - threshold, 1e-6));
+        ctx.fillStyle = `rgba(201, 100, 92, ${0.15 + 0.5 * strength})`;
+        ctx.fillRect((i % cols) * cw, Math.floor(i / cols) * ch, cw + 1, ch + 1);
+      });
+    }
+    $('heat-check').addEventListener('change', () => lastResult && drawHeat(lastResult.finding, lastResult.patch.threshold));
+
+    const MODEL_ROW = (name, m) => m ? `${m.vote} · ${m.score.toFixed(2)} / ${m.threshold.toFixed(2)}` : 'skipped (Step 1 passed)';
+    function row(label, value) { return `<div class="row"><span>${label}</span><span>${value}</span></div>`; }
+
+    function showResult(r) {
+      lastResult = r; $('result').style.display = 'block';
+      const banner = $('banner'); banner.className = `banner ${r.verdict}`;
+      const text = {
+        Good: ['OK, passes', 'Step 1 found nothing odd.'],
+        Defect: ['Rejected', 'Both checks flag damage.'],
+        Uncertain: ['Needs a person', 'The two checks disagree or are unsure.'],
+      }[r.verdict];
+      banner.innerHTML = `${text[0]}<small>${text[1]}</small>`;
+      const f = r.finding;
+      let rows = row('Step 1 · global check', MODEL_ROW('global', r.global)) + row('Step 2 · patch check', MODEL_ROW('patch', r.patch));
+      if (f) rows += row('Where', `${f.area_pct.toFixed(1)}% of the image`) + row('How bad', f.severity) + row('How sure (defect probability)', `${Math.round(f.defect_probability * 100)}%`);
+      $('rows').innerHTML = rows;
+      const shift = $('shift');
+      shift.style.display = r.shift.warning ? 'block' : 'none';
+      shift.textContent = `Warning: this photo looks different from the training images (distance ${r.shift.distance.toFixed(2)} > ${r.shift.limit.toFixed(2)}). Lighting or camera may have changed.`;
+      $('review').style.display = r.needs_review ? 'block' : 'none'; $('saved').textContent = '';
+      $('heat-toggle').style.display = f ? 'block' : 'none';
+      drawHeat(f, r.patch ? r.patch.threshold : 0);
+    }
 
     form.addEventListener('submit', async (e) => {
-      e.preventDefault(); errorBox.style.display = 'none'; resultBox.style.display = 'none';
-      const file = imageInput.files[0]; if (!file) return;
-      const formData = new FormData(); formData.append('image', file);
-      submitBtn.disabled = true; submitBtn.textContent = 'Inspecting...';
+      e.preventDefault(); const file = input.files[0]; if (!file) return;
+      errorEl.style.display = 'none'; $('result').style.display = 'none'; clearConsole();
+      logLine(`Sending ${file.name} to the server…`, null);
+      btn.disabled = true; btn.textContent = 'Checking…';
+      const data = new FormData(); data.append('image', file);
       try {
-        const res = await fetch('/predict', { method: 'POST', body: formData });
-        if (!res.ok) { const errText = await res.text(); throw new Error(`Server returned ${res.status}: ${errText}`); }
-        const data = await res.json();
-        verdictEl.textContent = data.verdict; verdictEl.className = 'badge ' + data.verdict;
-        reviewEl.textContent = data.needs_review ? 'Yes' : 'No';
-        globalEl.textContent = describe(data.global); patchEl.textContent = describe(data.patch);
-        resultBox.style.display = 'block';
+        const res = await fetch('/predict', { method: 'POST', body: data });
+        if (!res.ok) throw new Error(`Server returned ${res.status}: ${await res.text()}`);
+        const result = await res.json();
+        for (const line of result.log) { logLine(line.message, line.ms, lineClass(line.message)); await sleep(REPLAY_MS); }
+        logLine(`Final verdict: ${result.verdict.toUpperCase()}`, null, result.verdict === 'Good' ? 'ok' : result.verdict === 'Defect' ? 'bad' : 'warn');
+        showResult(result);
       } catch (err) {
-        errorBox.textContent = err.message; errorBox.style.display = 'block';
-      } finally {
-        submitBtn.disabled = false; submitBtn.textContent = 'Run Predict';
-      }
+        errorEl.textContent = err.message; errorEl.style.display = 'block'; logLine(`ERROR: ${err.message}`, null, 'bad');
+      } finally { btn.disabled = false; btn.textContent = 'Check image'; }
     });
+
+    document.querySelectorAll('[data-decision]').forEach((b) => b.addEventListener('click', async () => {
+      const body = JSON.stringify({ image: lastName, verdict: lastResult.verdict, decision: b.dataset.decision });
+      const res = await fetch('/decision', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body });
+      const message = res.ok ? `Decision saved: ${b.dataset.decision.toUpperCase()}` : `Could not save: ${await res.text()}`;
+      $('saved').textContent = message; logLine(message, null, res.ok ? 'ok' : 'bad');
+    }));
   </script>
 </body>
 </html>
