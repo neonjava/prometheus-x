@@ -1,9 +1,13 @@
 use std::path::Path;
 
+use candle_core::Tensor;
 use config::Config;
 use features::Extractor;
+use rand::rngs::StdRng;
+use rand::SeedableRng;
 use serde::{Deserialize, Serialize};
 
+use crate::patch::{sample_rows, PatchBank};
 use crate::{global_score, DetectorError};
 
 /// What a trained detector needs at prediction time.
@@ -13,6 +17,8 @@ pub struct Reference {
     pub threshold: f32,
     /// Scores of the good validation images; used later for calibration.
     pub val_scores: Vec<f32>,
+    pub patch_threshold: f32,
+    pub patch_val_scores: Vec<f32>,
 }
 
 impl Reference {
@@ -43,21 +49,6 @@ fn io_err(path: &Path, source: std::io::Error) -> DetectorError {
     }
 }
 
-/// Extracts one vector per image in `dir`, loading one image at a time to save memory.
-pub fn extract_dir(extractor: &Extractor, dir: &Path) -> Result<Vec<Vec<f32>>, DetectorError> {
-    let paths = data::list_images(dir)?;
-    if paths.is_empty() {
-        return Err(DetectorError::NoImages(dir.to_path_buf()));
-    }
-    paths
-        .iter()
-        .map(|path| {
-            let image = open_image(path)?;
-            Ok(extractor.extract(&image)?)
-        })
-        .collect()
-}
-
 pub fn open_image(path: &Path) -> Result<image::DynamicImage, DetectorError> {
     image::open(path).map_err(|source| DetectorError::Image {
         path: path.to_path_buf(),
@@ -65,20 +56,66 @@ pub fn open_image(path: &Path) -> Result<image::DynamicImage, DetectorError> {
     })
 }
 
-/// Builds the reference from `train_dir` and calibrates the threshold on `val_dir`.
-pub fn build_reference(cfg: &Config, extractor: &Extractor) -> Result<Reference, DetectorError> {
-    let vectors = extract_dir(extractor, &cfg.train_dir)?;
-    let val_vectors = extract_dir(extractor, &cfg.val_dir)?;
-    let val_scores = val_vectors
-        .iter()
-        .map(|v| global_score(v, &vectors))
-        .collect::<Result<Vec<_>, _>>()?;
+/// Builds both models from `train_dir` and calibrates their thresholds on `val_dir`.
+pub fn build_reference(
+    cfg: &Config,
+    extractor: &Extractor,
+) -> Result<(Reference, PatchBank), DetectorError> {
+    let (vectors, bank) = learn_good(cfg, extractor)?;
+    let (val_scores, patch_val_scores) = score_val(cfg, extractor, &vectors, &bank)?;
     let threshold = analysis::pick_threshold(&val_scores, cfg.threshold_percentile)?;
-    Ok(Reference {
+    let patch_threshold = analysis::pick_threshold(&patch_val_scores, cfg.threshold_percentile)?;
+    let reference = Reference {
         vectors,
         threshold,
         val_scores,
-    })
+        patch_threshold,
+        patch_val_scores,
+    };
+    Ok((reference, bank))
+}
+
+fn image_paths(dir: &Path) -> Result<Vec<std::path::PathBuf>, DetectorError> {
+    let paths = data::list_images(dir)?;
+    if paths.is_empty() {
+        return Err(DetectorError::NoImages(dir.to_path_buf()));
+    }
+    Ok(paths)
+}
+
+// One pass over the good images: keep every global vector, and a random share of patches.
+fn learn_good(
+    cfg: &Config,
+    extractor: &Extractor,
+) -> Result<(Vec<Vec<f32>>, PatchBank), DetectorError> {
+    let paths = image_paths(&cfg.train_dir)?;
+    let per_image = cfg.patch_bank_size.div_ceil(paths.len());
+    let mut rng = StdRng::seed_from_u64(cfg.patch_seed);
+    let mut vectors = Vec::with_capacity(paths.len());
+    let mut samples = Vec::with_capacity(paths.len());
+    for path in &paths {
+        let features = extractor.extract_all(&open_image(path)?)?;
+        samples.push(sample_rows(&features.patches, per_image, &mut rng)?);
+        vectors.push(features.global);
+    }
+    let bank = PatchBank::from_rows(Tensor::cat(&samples, 0)?)?;
+    Ok((vectors, bank))
+}
+
+fn score_val(
+    cfg: &Config,
+    extractor: &Extractor,
+    vectors: &[Vec<f32>],
+    bank: &PatchBank,
+) -> Result<(Vec<f32>, Vec<f32>), DetectorError> {
+    let mut global = Vec::new();
+    let mut patch = Vec::new();
+    for path in image_paths(&cfg.val_dir)? {
+        let features = extractor.extract_all(&open_image(&path)?)?;
+        global.push(global_score(&features.global, vectors)?);
+        patch.push(bank.score(&features.patches, features.grid)?.score);
+    }
+    Ok((global, patch))
 }
 
 #[cfg(test)]
@@ -91,6 +128,8 @@ mod tests {
             vectors: vec![vec![1.0, 2.0], vec![3.0, 4.0]],
             threshold: 0.5,
             val_scores: vec![0.1, 0.2],
+            patch_threshold: 0.7,
+            patch_val_scores: vec![0.3],
         };
         let path = std::env::temp_dir().join(format!("px_ref_{}.json", std::process::id()));
         reference.save(&path).expect("save");
@@ -98,6 +137,7 @@ mod tests {
         std::fs::remove_file(&path).expect("cleanup");
         assert_eq!(loaded.vectors, reference.vectors);
         assert_eq!(loaded.threshold, reference.threshold);
+        assert_eq!(loaded.patch_threshold, reference.patch_threshold);
         assert!(Reference::load(&path).is_err());
     }
 }

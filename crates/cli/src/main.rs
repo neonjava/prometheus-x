@@ -1,11 +1,11 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use config::Config;
 use detector::store::{build_reference, open_image};
-use detector::Predictor;
+use detector::{ModelResult, Prediction, Predictor, Verdict};
 use features::Extractor;
 
 #[derive(Parser)]
@@ -44,81 +44,91 @@ fn main() -> Result<()> {
 fn build(cfg: &Config) -> Result<()> {
     let started = Instant::now();
     let extractor = Extractor::load(cfg)?;
-    let reference = build_reference(cfg, &extractor)?;
+    let (reference, bank) = build_reference(cfg, &extractor)?;
     reference.save(&cfg.good_vectors_path)?;
+    bank.save(&cfg.patch_bank_path)?;
     println!(
-        "built reference: {} good vectors, threshold {:.4} (p{}), {:.1}s",
+        "global: {} vectors, threshold {:.4} | patch: {} rows, threshold {:.4} | p{} | {:.1}s",
         reference.vectors.len(),
         reference.threshold,
+        bank.len(),
+        reference.patch_threshold,
         cfg.threshold_percentile,
         started.elapsed().as_secs_f32()
     );
     Ok(())
 }
 
-fn predict(cfg: &Config, image_path: &std::path::Path) -> Result<()> {
-    let predictor = Predictor::load(cfg)?;
-    let image = open_image(image_path)?;
-    let prediction = predictor.predict(&image)?;
+fn print_model(name: &str, model: &ModelResult) {
     println!(
-        "verdict={} score={:.4} threshold={:.4}",
-        prediction.verdict,
-        prediction.score,
-        predictor.threshold()
+        "  {name:<7} score={:.4} threshold={:.4} vote={}",
+        model.score, model.threshold, model.vote
     );
+}
+
+fn predict(cfg: &Config, image_path: &Path) -> Result<()> {
+    let predictor = Predictor::load(cfg)?;
+    let prediction = predictor.predict(&open_image(image_path)?)?;
+    println!(
+        "verdict={} needs_review={}",
+        prediction.verdict, prediction.needs_review
+    );
+    print_model("global", &prediction.global);
+    print_model("patch", &prediction.patch);
     Ok(())
 }
 
-fn score_dir(predictor: &Predictor, dir: &std::path::Path) -> Result<Vec<f32>> {
+fn predict_dir(predictor: &Predictor, dir: &Path) -> Result<Vec<Prediction>> {
     data::list_images(dir)?
         .iter()
         .map(|path| {
             let image = open_image(path)?;
-            predictor.score(&image).map_err(Into::into)
+            predictor.predict(&image).map_err(Into::into)
         })
         .collect()
 }
 
-fn evaluate(cfg: &Config) -> Result<()> {
-    let predictor = Predictor::load(cfg)?;
-    let good = score_dir(&predictor, &cfg.test_dir.join("good")).context("scoring test/good")?;
-    let defect =
-        score_dir(&predictor, &cfg.test_dir.join("defect")).context("scoring test/defect")?;
-
-    let scores: Vec<f32> = good.iter().chain(&defect).copied().collect();
+fn print_metrics(
+    name: &str,
+    good: &[Prediction],
+    defect: &[Prediction],
+    pick: impl Fn(&Prediction) -> ModelResult,
+) -> Result<()> {
+    let results: Vec<ModelResult> = good.iter().chain(defect).map(&pick).collect();
+    let scores: Vec<f32> = results.iter().map(|r| r.score).collect();
     let labels: Vec<bool> = good
         .iter()
         .map(|_| false)
         .chain(defect.iter().map(|_| true))
         .collect();
-    let metrics = analysis::evaluate(&scores, &labels, predictor.threshold())?;
-
-    println!("images: {} good, {} defect", good.len(), defect.len());
-    println!("threshold: {:.4}", predictor.threshold());
-    println!("image AUROC:       {:.4}", metrics.auroc);
-    println!("false-positive rate: {:.4}", metrics.fpr);
-    println!("miss rate:           {:.4}", metrics.miss_rate);
-    print_zones("good  ", &good, predictor.threshold(), cfg.uncertain_margin);
-    print_zones(
-        "defect",
-        &defect,
-        predictor.threshold(),
-        cfg.uncertain_margin,
+    let metrics = analysis::evaluate(&scores, &labels, results[0].threshold)?;
+    println!(
+        "{name:<7} AUROC {:.4} | false-positive rate {:.4} | miss rate {:.4}",
+        metrics.auroc, metrics.fpr, metrics.miss_rate
     );
     Ok(())
 }
 
-fn print_zones(name: &str, scores: &[f32], threshold: f32, margin: f32) {
-    let count = |wanted| {
-        scores
-            .iter()
-            .filter(|&&s| detector::verdict(s, threshold, margin) == wanted)
-            .count()
-    };
+fn print_zones(name: &str, predictions: &[Prediction]) {
+    let count = |wanted| predictions.iter().filter(|p| p.verdict == wanted).count();
     println!(
         "{name}: Good {} / Uncertain {} / Defect {}",
-        count(detector::Verdict::Good),
-        count(detector::Verdict::Uncertain),
-        count(detector::Verdict::Defect)
+        count(Verdict::Good),
+        count(Verdict::Uncertain),
+        count(Verdict::Defect)
     );
+}
+
+fn evaluate(cfg: &Config) -> Result<()> {
+    let predictor = Predictor::load(cfg)?;
+    let good = predict_dir(&predictor, &cfg.test_dir.join("good")).context("test/good")?;
+    let defect = predict_dir(&predictor, &cfg.test_dir.join("defect")).context("test/defect")?;
+
+    println!("images: {} good, {} defect", good.len(), defect.len());
+    print_metrics("global", &good, &defect, |p| p.global)?;
+    print_metrics("patch", &good, &defect, |p| p.patch)?;
+    println!("fused verdicts:");
+    print_zones("  good  ", &good);
+    print_zones("  defect", &defect);
+    Ok(())
 }

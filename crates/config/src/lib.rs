@@ -36,6 +36,12 @@ pub struct Config {
     pub uncertain_margin: f32,
     pub server_bind: String,
     pub max_upload_bytes: usize,
+    /// "cpu" or "cuda:<index>".
+    pub device: String,
+    pub patch_bank_path: PathBuf,
+    /// Total patch features kept in the memory bank.
+    pub patch_bank_size: usize,
+    pub patch_seed: u64,
 }
 
 impl Config {
@@ -69,6 +75,9 @@ impl Config {
         if self.max_upload_bytes == 0 {
             return Err(ConfigError::Invalid("max_upload_bytes must be > 0".into()));
         }
+        if self.patch_bank_size == 0 {
+            return Err(ConfigError::Invalid("patch_bank_size must be > 0".into()));
+        }
         Ok(())
     }
 }
@@ -88,6 +97,10 @@ threshold_percentile = 95.0
 uncertain_margin = 0.1
 server_bind = "127.0.0.1:0"
 max_upload_bytes = 1024
+device = "cpu"
+patch_bank_path = "b.safetensors"
+patch_bank_size = 100
+patch_seed = 1
 "#;
 
     fn write(name: &str, text: &str) -> PathBuf {

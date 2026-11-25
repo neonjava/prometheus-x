@@ -27,6 +27,15 @@ pub fn verdict(score: f32, threshold: f32, margin: f32) -> Verdict {
     }
 }
 
+/// Both models agree -> that verdict. Any disagreement or doubt -> Uncertain.
+pub fn fuse(a: Verdict, b: Verdict) -> Verdict {
+    if a == b {
+        a
+    } else {
+        Verdict::Uncertain
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -38,5 +47,15 @@ mod tests {
         assert_eq!(verdict(1.0, 1.0, 0.1), Verdict::Uncertain);
         assert_eq!(verdict(1.1, 1.0, 0.1), Verdict::Uncertain);
         assert_eq!(verdict(1.2, 1.0, 0.1), Verdict::Defect);
+    }
+
+    #[test]
+    fn fusion_needs_agreement() {
+        use Verdict::*;
+        assert_eq!(fuse(Good, Good), Good);
+        assert_eq!(fuse(Defect, Defect), Defect);
+        assert_eq!(fuse(Good, Defect), Uncertain);
+        assert_eq!(fuse(Uncertain, Defect), Uncertain);
+        assert_eq!(fuse(Uncertain, Uncertain), Uncertain);
     }
 }

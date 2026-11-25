@@ -7,17 +7,35 @@ use axum::response::Html;
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use config::Config;
-use detector::Predictor;
+use detector::{ModelResult, Predictor};
 use image::DynamicImage;
 use serde::{Deserialize, Serialize};
 
 const INDEX_HTML: &str = include_str!("../../../web/index.html");
 
 #[derive(Debug, Serialize, Deserialize, PartialEq)]
-struct PredictionResponse {
-    verdict: String,
+struct ModelResponse {
     score: f32,
     threshold: f32,
+    vote: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, PartialEq)]
+struct PredictionResponse {
+    verdict: String,
+    needs_review: bool,
+    global: ModelResponse,
+    patch: ModelResponse,
+}
+
+impl From<ModelResult> for ModelResponse {
+    fn from(m: ModelResult) -> Self {
+        Self {
+            score: m.score,
+            threshold: m.threshold,
+            vote: m.vote.to_string(),
+        }
+    }
 }
 
 /// Anything that can judge an image; lets tests run without model weights.
@@ -30,8 +48,9 @@ impl Model for Predictor {
         let prediction = Predictor::predict(self, image).map_err(|e| e.to_string())?;
         Ok(PredictionResponse {
             verdict: prediction.verdict.to_string(),
-            score: prediction.score,
-            threshold: self.threshold(),
+            needs_review: prediction.needs_review,
+            global: prediction.global.into(),
+            patch: prediction.patch.into(),
         })
     }
 }
@@ -122,10 +141,16 @@ mod tests {
 
     impl Model for StubModel {
         fn predict(&self, _image: &DynamicImage) -> Result<PredictionResponse, String> {
-            Ok(PredictionResponse {
-                verdict: "Good".to_string(),
+            let model = || ModelResponse {
                 score: 0.0,
                 threshold: 1.0,
+                vote: "Good".to_string(),
+            };
+            Ok(PredictionResponse {
+                verdict: "Good".to_string(),
+                needs_review: false,
+                global: model(),
+                patch: model(),
             })
         }
     }
@@ -180,7 +205,8 @@ mod tests {
             .expect("read response");
 
         assert!(response.contains("200 OK"));
-        assert!(response.contains("{\"verdict\":\"Good\",\"score\":0.0,\"threshold\":1.0}"));
+        assert!(response.contains("\"verdict\":\"Good\",\"needs_review\":false"));
+        assert!(response.contains("\"patch\":{\"score\":0.0,\"threshold\":1.0,\"vote\":\"Good\"}"));
     }
 
     #[tokio::test]

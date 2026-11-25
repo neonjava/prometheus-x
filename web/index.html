@@ -99,8 +99,9 @@
       <div id="preview-container"><img id="preview" alt="Uploaded PCB Preview"></div>
       <div id="result-box">
         <div class="metric-row"><span>Verdict:</span><span class="badge" id="verdict"></span></div>
-        <div class="metric-row"><span>Anomaly Score:</span><span class="score-val" id="score"></span></div>
-        <div class="metric-row"><span>Threshold:</span><span class="score-val" id="threshold"></span></div>
+        <div class="metric-row"><span>Needs human review:</span><span class="score-val" id="review"></span></div>
+        <div class="metric-row"><span>Global check:</span><span class="score-val" id="global"></span></div>
+        <div class="metric-row"><span>Patch check:</span><span class="score-val" id="patch"></span></div>
       </div>
     </div>
   </main>
@@ -134,8 +135,7 @@
     const form = document.getElementById('upload-form'), imageInput = document.getElementById('image-input'),
           fileLabel = document.getElementById('file-label'), previewContainer = document.getElementById('preview-container'),
           preview = document.getElementById('preview'), resultBox = document.getElementById('result-box'),
-          verdictEl = document.getElementById('verdict'), scoreEl = document.getElementById('score'),
-          errorBox = document.getElementById('error-box'), thresholdEl = document.getElementById('threshold'), submitBtn = document.getElementById('submit-btn');
+          verdictEl = document.getElementById('verdict'),           errorBox = document.getElementById('error-box'), reviewEl = document.getElementById('review'), globalEl = document.getElementById('global'), patchEl = document.getElementById('patch'), submitBtn = document.getElementById('submit-btn');
 
     imageInput.addEventListener('change', () => {
       errorBox.style.display = 'none'; const file = imageInput.files[0];
@@ -158,6 +158,8 @@
     // Stop the browser from opening a file dropped outside the zone.
     ['dragover', 'drop'].forEach((ev) => window.addEventListener(ev, (e) => e.preventDefault()));
 
+    const describe = (m) => `${m.vote} (score ${m.score.toFixed(2)} / threshold ${m.threshold.toFixed(2)})`;
+
     form.addEventListener('submit', async (e) => {
       e.preventDefault(); errorBox.style.display = 'none'; resultBox.style.display = 'none';
       const file = imageInput.files[0]; if (!file) return;
@@ -168,7 +170,8 @@
         if (!res.ok) { const errText = await res.text(); throw new Error(`Server returned ${res.status}: ${errText}`); }
         const data = await res.json();
         verdictEl.textContent = data.verdict; verdictEl.className = 'badge ' + data.verdict;
-        scoreEl.textContent = Number(data.score).toFixed(4); thresholdEl.textContent = Number(data.threshold).toFixed(4);
+        reviewEl.textContent = data.needs_review ? 'Yes' : 'No';
+        globalEl.textContent = describe(data.global); patchEl.textContent = describe(data.patch);
         resultBox.style.display = 'block';
       } catch (err) {
         errorBox.textContent = err.message; errorBox.style.display = 'block';

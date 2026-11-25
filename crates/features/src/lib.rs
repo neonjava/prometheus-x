@@ -46,7 +46,7 @@ impl Extractor {
             ));
         }
 
-        let device = Device::Cpu;
+        let device = select_device(&config.device)?;
         let bytes =
             std::fs::read(&config.model_weights_path).map_err(|source| FeaturesError::Io {
                 path: config.model_weights_path.clone(),
@@ -77,9 +77,27 @@ impl Extractor {
         })
     }
 
+    pub fn device(&self) -> &Device {
+        &self.device
+    }
+
     fn stages(&self, image: &DynamicImage) -> Result<Stages, FeaturesError> {
         let input = preprocess(image, self.input_size, &self.device)?;
         Ok(self.model.forward(&input)?)
+    }
+}
+
+/// Parses "cpu" or "cuda:<index>" from the config.
+pub fn select_device(name: &str) -> Result<Device, FeaturesError> {
+    match name.strip_prefix("cuda:") {
+        _ if name == "cpu" => Ok(Device::Cpu),
+        Some(index) => {
+            let ordinal = index
+                .parse()
+                .map_err(|_| FeaturesError::InvalidConfig(format!("bad device '{name}'")))?;
+            Ok(Device::new_cuda(ordinal)?)
+        }
+        None => Err(FeaturesError::InvalidConfig(format!("bad device '{name}'"))),
     }
 }
 
@@ -160,6 +178,10 @@ mod tests {
             uncertain_margin: 0.1,
             server_bind: String::new(),
             max_upload_bytes: 1,
+            device: "cpu".to_string(),
+            patch_bank_path: PathBuf::new(),
+            patch_bank_size: 1,
+            patch_seed: 0,
         }
     }
 
