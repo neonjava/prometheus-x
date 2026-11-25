@@ -49,7 +49,7 @@ Every path, size and threshold is in [`config.toml`](config.toml). Use `--config
 Open http://127.0.0.1:8080. Five pages, in a soft white and green style with falling leaves:
 - **Overview**: figures from the loaded model and links to everything.
 - **Check image**: drop one photo and watch each step in a console, with the heatmap.
-- **Batch**: drop a zip or many photos. A live progress bar, summary tiles (OK, needs review, defect, shift warnings, errors), a red / amber / green thumbnail grid you can filter and sort, a detail drawer with the heatmap, bulk OK / Reject / Fix, and CSV export. Results are saved under `batches_dir`, so a refresh or restart loses nothing.
+- **Batch**: drop a zip or many photos. A live progress bar, summary tiles (OK, needs review, defect, shift warnings, errors), a red / amber / green thumbnail grid you can filter and sort, a detail drawer with the heatmap, bulk OK / Reject / Fix, and CSV export. Results are saved under `batches_dir`, so a refresh or restart loses nothing. Old batches can be deleted from the page. Every result shows why it was flagged: how far past the limit each check was, a smooth heatmap, and numbered close-ups of the odd spots.
 - **Review**: every decision people saved.
 - **How it works**: the diagram and the steps.
 

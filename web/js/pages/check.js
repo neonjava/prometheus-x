@@ -1,7 +1,8 @@
 import { predictImage, saveDecision } from '../api.js';
 import {
-  bindDropzone, Console, drawHeat, esc, icon, resultHtml, reviewBox, toast, VERDICT_CLASS,
+  bindDropzone, Console, esc, icon, resultHtml, reviewBox, toast, VERDICT_CLASS,
 } from '../ui.js';
+import { mountHeatView } from '../heatview.js';
 
 export function mountCheck(root) {
   root.innerHTML = `
@@ -13,8 +14,7 @@ export function mountCheck(root) {
           <div class="dropzone" id="zone">${icon('upload')}<b id="zone-text">Click or drop a product photo here</b><small>JPG, PNG, BMP or WebP</small></div>
           <input class="hidden-input" type="file" id="input" accept="image/*">
           <button class="btn primary block" id="go" style="margin-top:.9rem" disabled>Check image</button>
-          <div class="preview-wrap" id="preview-wrap" hidden><img id="preview" alt="Uploaded product"><canvas id="heat"></canvas></div>
-          <label class="check-row" id="heat-row" hidden><input type="checkbox" id="heat-on" checked> show where (heatmap)</label>
+          <div id="viewer"></div>
           <div class="notice danger" id="error" hidden></div>
         </div>
         <div class="card" id="result" hidden></div>
@@ -26,35 +26,30 @@ export function mountCheck(root) {
   const out = new Console($('#console'));
   const state = { file: null, result: null };
 
+  let release = () => {};
+
   function selectFile(files) {
     state.file = files[0];
-    $('#preview').src = URL.createObjectURL(state.file);
-    $('#preview-wrap').hidden = false;
+    state.url = URL.createObjectURL(state.file);
+    release();
+    $('#viewer').innerHTML = `<div class="preview-wrap"><img alt="Uploaded product" src="${state.url}"></div>`;
     $('#zone-text').textContent = state.file.name;
     $('#go').disabled = false;
     $('#result').hidden = true;
-    $('#heat-row').hidden = true;
     $('#error').hidden = true;
-    $('#heat').getContext('2d').clearRect(0, 0, $('#heat').width, $('#heat').height);
     out.clear();
     out.line(`Selected ${state.file.name}. Press "Check image".`);
   }
 
   bindDropzone($('#zone'), $('#input'), selectFile);
 
-  function paintHeat() {
-    const r = state.result;
-    drawHeat($('#heat'), $('#preview'), r.finding, r.patch ? r.patch.threshold : 0, $('#heat-on').checked);
-  }
-  $('#heat-on').addEventListener('change', () => state.result && paintHeat());
-
   function showResult(r) {
     state.result = r;
     const box = $('#result');
     box.hidden = false;
     box.innerHTML = `<div class="section-label">Result</div>${resultHtml(r)}${r.needs_review ? reviewBox() : ''}`;
-    $('#heat-row').hidden = !r.finding;
-    paintHeat();
+    release();
+    release = mountHeatView($('#viewer'), state.url, r);
   }
 
   $('#go').addEventListener('click', async () => {
@@ -90,5 +85,5 @@ export function mountCheck(root) {
       toast(`Could not save: ${esc(err.message)}`, 'error');
     }
   });
-  return null;
+  return () => release();
 }

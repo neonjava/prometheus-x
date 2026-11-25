@@ -131,32 +131,6 @@ export class Console {
   }
 }
 
-// ---- heatmap ------------------------------------------------------------
-
-const HEAT_RGB = '176, 96, 90';
-const HEAT_BASE_ALPHA = 0.18;
-const HEAT_RANGE_ALPHA = 0.5;
-
-// The server resizes photos to a square grid, so each cell covers an equal share of the image.
-export function drawHeat(canvas, imageEl, finding, threshold, enabled = true) {
-  canvas.width = imageEl.clientWidth;
-  canvas.height = imageEl.clientHeight;
-  const ctx = canvas.getContext('2d');
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-  if (!finding || !enabled) return;
-
-  const [rows, cols] = finding.grid;
-  const peak = Math.max(...finding.map);
-  const cellW = canvas.width / cols;
-  const cellH = canvas.height / rows;
-  finding.map.forEach((distance, i) => {
-    if (distance <= threshold) return;
-    const strength = Math.min(1, (distance - threshold) / Math.max(peak - threshold, 1e-6));
-    ctx.fillStyle = `rgba(${HEAT_RGB}, ${HEAT_BASE_ALPHA + HEAT_RANGE_ALPHA * strength})`;
-    ctx.fillRect((i % cols) * cellW, Math.floor(i / cols) * cellH, cellW + 1, cellH + 1);
-  });
-}
-
 // ---- result card pieces -------------------------------------------------
 
 export function fact(label, value) {
@@ -213,4 +187,30 @@ export function bindDropzone(zone, input, onFiles) {
 // Stops the browser from opening a file dropped outside a zone.
 export function blockStrayDrops() {
   ['dragover', 'drop'].forEach((type) => window.addEventListener(type, (e) => e.preventDefault()));
+}
+
+// ---- confirm sheet ------------------------------------------------------
+
+/** Asks before something that cannot be undone. Resolves to true only on the action button. */
+export function confirmSheet(message, actionLabel) {
+  return new Promise((resolve) => {
+    const el = document.createElement('div');
+    el.className = 'backdrop';
+    el.innerHTML = `<div class="sheet" role="alertdialog"><p>${esc(message)}</p>
+      <div class="actions"><button class="btn" data-answer="no">Cancel</button>
+      <button class="btn danger solid" data-answer="yes">${esc(actionLabel)}</button></div></div>`;
+    const finish = (answer) => {
+      document.removeEventListener('keydown', onKey);
+      el.remove();
+      resolve(answer);
+    };
+    const onKey = (e) => e.key === 'Escape' && finish(false);
+    document.addEventListener('keydown', onKey);
+    el.addEventListener('click', (e) => {
+      if (e.target === el) finish(false);
+      const button = e.target.closest('[data-answer]');
+      if (button) finish(button.dataset.answer === 'yes');
+    });
+    document.body.append(el);
+  });
 }

@@ -1,10 +1,11 @@
 import {
-  csvUrl, getBatch, getBatches, getItem, imageUrl, saveDecision, startBatch, thumbUrl,
+  csvUrl, deleteBatch, getBatch, getBatches, getItem, imageUrl, saveDecision, startBatch, thumbUrl,
 } from '../api.js';
 import {
-  bindDropzone, category, CATEGORY_LABEL, CATEGORY_TAG, Console, drawHeat, esc, formatBytes,
+  bindDropzone, category, CATEGORY_LABEL, CATEGORY_TAG, confirmSheet, Console, esc, formatBytes,
   formatDuration, formatTime, icon, resultHtml, reviewBox, SEVERITY_TAG, toast,
 } from '../ui.js';
+import { mountHeatView } from '../heatview.js';
 
 const POLL_MS = 1000;
 const CHUNK = 120;
@@ -80,6 +81,7 @@ export function mountBatch(root) {
       <div class="section-label">Add images</div>
       <div class="dropzone" id="zone">${icon('upload')}<b>Drop a zip or many photos here</b><small id="picked">or click to choose files</small></div>
       <input class="hidden-input" type="file" id="input" accept=".zip,image/*" multiple>
+      <label class="check-row"><input type="checkbox" id="replace-old"> Remove earlier finished batches once this one is uploaded</label>
       <div class="actions" style="margin-top:.9rem">
         <button class="btn primary" id="start" disabled>Start batch</button>
       </div>
@@ -87,7 +89,8 @@ export function mountBatch(root) {
     </div>
 
     <div class="card" id="recent-card" style="margin-top:1.4rem">
-      <div class="section-label">Recent batches</div>
+      <div class="page-head" style="margin-bottom:.6rem"><div class="section-label" style="margin:0">Recent batches</div>
+        <button class="btn sm danger" id="delete-all" hidden>Delete all finished</button></div>
       <div id="recent-list"><div class="empty">Loading recent batches…</div></div>
     </div>
 
@@ -115,6 +118,7 @@ export function mountBatch(root) {
 
   const $ = (sel) => root.querySelector(sel);
   let drawer = null;
+  let painted = '';
 
   function setFiles(fileList) {
     activeBatch.files = [...fileList];
@@ -143,7 +147,9 @@ export function mountBatch(root) {
         $('#progress-left').textContent = `Uploading ${Math.round(fraction * 100)}%`;
         $('#progress-right').textContent = '';
       });
+      const replace = $('#replace-old').checked;
       follow(id, true);
+      if (replace) await removeOld(id);
     } catch (err) {
       showError(err.message);
       $('#progress-card').hidden = true;
@@ -151,7 +157,7 @@ export function mountBatch(root) {
     }
   });
 
-  $('#new-batch').addEventListener('click', () => {
+  function resetView() {
     activeBatch.id = null;
     activeBatch.items = [];
     activeBatch.total = 0;
@@ -170,6 +176,39 @@ export function mountBatch(root) {
     $('#export').hidden = true;
     $('#bulk').innerHTML = '';
     loadRecent();
+  }
+  $('#new-batch').addEventListener('click', resetView);
+
+  // ---- removing old data ----------------------------------------------------
+
+  const isFinished = (b) => b.status === 'done' || b.status === 'failed';
+
+  async function remove(ids) {
+    const results = await Promise.allSettled(ids.map(deleteBatch));
+    const failed = results.filter((r) => r.status === 'rejected').length;
+    if (failed) toast(`${failed} batch${failed === 1 ? '' : 'es'} could not be deleted`, 'error');
+    else if (ids.length) toast(`Deleted ${ids.length} batch${ids.length === 1 ? '' : 'es'}`);
+    if (ids.includes(activeBatch.id)) resetView();
+    else loadRecent();
+  }
+
+  async function removeOld(keepId) {
+    const old = (await getBatches()).filter((b) => b.id !== keepId && isFinished(b));
+    await remove(old.map((b) => b.id));
+  }
+
+  async function askAndRemove(ids) {
+    const what = ids.length === 1 ? 'this batch' : `${ids.length} batches`;
+    const sure = await confirmSheet(
+      `Delete ${what}? Photos, results and photos still waiting for review are removed for good. Saved decisions stay.`,
+      'Delete',
+    );
+    if (sure) await remove(ids);
+  }
+
+  $('#delete-all').addEventListener('click', async () => {
+    const finished = (await getBatches()).filter(isFinished);
+    if (finished.length) await askAndRemove(finished.map((b) => b.id));
   });
 
   async function loadRecent() {
@@ -177,6 +216,7 @@ export function mountBatch(root) {
     if (!listEl) return;
     try {
       const batches = await getBatches();
+      $('#delete-all').hidden = !batches.some((b) => b.status === 'done' || b.status === 'failed');
       if (!batches.length) {
         listEl.innerHTML = '<div class="empty">No batches yet.</div>';
         return;
@@ -195,6 +235,7 @@ export function mountBatch(root) {
               <button class="btn sm ${isCurrent ? 'primary' : ''}" data-open-b="${esc(b.id)}">
                 ${isCurrent ? 'Viewing' : 'Open'}
               </button>
+              ${isFinished(b) ? `<button class="btn sm danger" data-delete-b="${esc(b.id)}" aria-label="Delete batch">${icon('x')}</button>` : ''}
             </td>
           </tr>`;
         }).join('')}</tbody></table></div>`;
@@ -206,6 +247,8 @@ export function mountBatch(root) {
   $('#recent-card').addEventListener('click', (e) => {
     const btn = e.target.closest('[data-open-b]');
     if (btn) follow(btn.dataset.openB, false);
+    const del = e.target.closest('[data-delete-b]');
+    if (del) askAndRemove([del.dataset.deleteB]);
   });
 
   function follow(id, isNew = false) {
@@ -229,6 +272,7 @@ export function mountBatch(root) {
     $('#query').value = activeBatch.query;
 
     clearInterval(activeBatch.timer);
+    painted = '';
     poll();
     activeBatch.timer = setInterval(poll, POLL_MS);
     loadRecent();
@@ -240,13 +284,18 @@ export function mountBatch(root) {
       const data = await getBatch(activeBatch.id);
       Object.assign(activeBatch, { items: data.items, status: data.status, total: data.total, done: data.done });
       paintProgress(data.error);
-      paintAll();
+      // Redrawing the grid costs the browser time, so only do it when results changed.
+      const snapshot = `${data.status}:${data.done}`;
+      if (snapshot !== painted) {
+        painted = snapshot;
+        paintAll();
+        loadRecent();
+      }
       if (data.status === 'done' || data.status === 'failed') {
         clearInterval(activeBatch.timer);
         activeBatch.timer = null;
         if (!activeBatch.finishedToast && data.status === 'done') toast(`Batch finished: ${data.items.length} images checked`);
         activeBatch.finishedToast = true;
-        loadRecent();
       }
     } catch (err) {
       clearInterval(activeBatch.timer);
@@ -483,7 +532,7 @@ export function mountBatch(root) {
   function closeDrawer() {
     if (!drawer) return;
     document.removeEventListener('keydown', drawer.onKey);
-    window.removeEventListener('resize', drawer.onResize);
+    drawer.release?.();
     drawer.el.remove();
     drawer = null;
   }
@@ -493,7 +542,7 @@ export function mountBatch(root) {
     const el = document.createElement('div');
     el.className = 'backdrop';
     document.body.append(el);
-    drawer = { el, name, heatOn: true, onKey: null, onResize: null };
+    drawer = { el, name, onKey: null, release: null };
     drawer.onKey = (e) => {
       if (e.key === 'Escape') closeDrawer();
       if (e.key === 'ArrowRight') step(1);
@@ -553,19 +602,10 @@ export function mountBatch(root) {
       return;
     }
     const r = item.response;
-    left.innerHTML = `<div class="preview-wrap"><img id="d-img" alt="${esc(item.name)}" src="${imageUrl(activeBatch.id, item.name)}"><canvas id="d-heat"></canvas></div>
-      ${r.finding ? `<label class="check-row"><input type="checkbox" id="d-heat-on" checked> show where (heatmap)</label>` : ''}`;
+    d.release?.();
+    d.release = mountHeatView(left, imageUrl(activeBatch.id, item.name), r);
     right.innerHTML = `${resultHtml(r)}${r.needs_review ? reviewBox() : ''}
       <div class="section-label" style="margin-top:1rem">Steps</div><div class="console short" id="d-console"></div>`;
-
-    const paint = () => drawHeat(left.querySelector('#d-heat'), left.querySelector('#d-img'), r.finding,
-      r.patch ? r.patch.threshold : 0, d.heatOn);
-    left.querySelector('#d-img').addEventListener('load', paint);
-    window.removeEventListener('resize', d.onResize);
-    d.onResize = paint;
-    window.addEventListener('resize', paint);
-    const toggle = left.querySelector('#d-heat-on');
-    if (toggle) toggle.addEventListener('change', () => { d.heatOn = toggle.checked; paint(); });
 
     new Console(right.querySelector('#d-console')).replay(r, false);
     right.addEventListener('click', async (e) => {

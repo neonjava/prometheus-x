@@ -551,3 +551,28 @@ a { color: var(--green); }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
+
+/* ---- photo viewer and reasons ------------------------------------------ */
+
+.heat-controls { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.6rem; margin-top: 0.7rem; }
+.heat-controls label { display: flex; align-items: center; gap: 0.5rem; font-size: 0.85rem; color: var(--text-2); }
+.heat-controls input { accent-color: var(--green); }
+
+.why { margin-top: 1rem; padding: 1rem 1.15rem; border-radius: 1.1rem; background: rgba(255, 255, 255, 0.7); border: 1px solid var(--green-line); }
+.why h3 { font-size: 0.95rem; color: var(--green-deep); margin-bottom: 0.45rem; }
+.why ul { padding-left: 1.1rem; font-size: 0.9rem; }
+.why li { margin-bottom: 0.2rem; }
+.spots { display: grid; grid-template-columns: repeat(auto-fill, minmax(8.5rem, 1fr)); gap: 0.7rem; margin-top: 0.8rem; }
+.spot { border-radius: 0.9rem; overflow: hidden; background: var(--surface); border: 1px solid var(--danger-line); }
+.spot canvas { display: block; width: 100%; height: auto; }
+.spot figcaption { display: grid; padding: 0.45rem 0.65rem 0.55rem; font-size: 0.78rem; color: var(--text-2); }
+.spot figcaption b { color: var(--danger); }
+.why-note { margin-top: 0.7rem; font-size: 0.8rem; color: var(--text-2); }
+
+/* ---- confirm sheet ----------------------------------------------------- */
+
+.sheet { width: min(26rem, 100%); padding: 1.3rem 1.4rem; border-radius: var(--r-xl); background: #f9fcf9; border: 1px solid var(--green-line); box-shadow: var(--glass-lift); animation: rise 0.25s var(--spring); }
+.sheet p { margin-bottom: 1rem; }
+.sheet .actions { justify-content: flex-end; }
+.sheet .actions .btn { flex: 0; white-space: nowrap; }
+.btn.danger.solid { background: var(--danger-bg); border-color: var(--danger-line); }
