@@ -34,18 +34,18 @@ You do not need Rust installed. GitHub Actions runs everything on every PR:
 - Pushing a tag `v*` builds a release and publishes the binaries to a GitHub Release.
 
 ## Code structure
-Cargo workspace. One crate = one job. Dependencies only point down this list:
+Cargo workspace. One crate = one job. Dependencies only point from the bottom of this list upward: config and data first, then features and analysis, then detector, then cli and server.
 
 ```
-config      Config struct, Config::load(path) -> Result<Config>   (neonjava)
-features    ResNet extractor: image -> Vec<f32>                   (neonjava)
-data        folder -> images loader                               (rakshitha)
-detector    score, good-vector store, verdict, predict            (neonjava)
-analysis    threshold, severity, evaluate                         (megha)
-cli         clap subcommands: predict, evaluate                   (rakshitha)
-server      axum POST /predict                                    (ruthwin)
-web/        plain HTML upload page                                (ruthwin)
-scripts/    dataset download and split                            (rakshitha)
+config      Config struct, Config::load(path) -> Result<Config>
+data        folder -> image paths / images
+features    ResNet-18 trunk: image -> global vector + patch features
+analysis    pure maths: threshold, evaluate, severity, calibration, shift
+detector    scores, patch bank, good-vector store, verdict, fusion, predict
+cli         clap subcommands: build, predict, evaluate
+server      axum: page, POST /predict, POST /decision
+web/        plain HTML, CSS and JS
+scripts/    dataset download and split
 ```
 
 - Libraries (config, features, data, detector, analysis) return `Result<T, E>` with `thiserror` errors. Only `cli` and `server` use `anyhow` and print errors.
