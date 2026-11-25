@@ -36,6 +36,20 @@ pub struct Config {
     pub uncertain_margin: f32,
     pub server_bind: String,
     pub max_upload_bytes: usize,
+    /// "cpu" or "cuda:<index>".
+    pub device: String,
+    pub patch_bank_path: PathBuf,
+    /// Total patch features kept in the memory bank.
+    pub patch_bank_size: usize,
+    pub patch_seed: u64,
+    /// Percentile (0-100) of training distances to the training mean that triggers a shift warning.
+    pub shift_percentile: f32,
+    /// Severity index (defect area % x relative score) up to which a defect is Low.
+    pub severity_low_max: f32,
+    /// Severity index up to which a defect is Medium; above it is High.
+    pub severity_med_max: f32,
+    /// Human review decisions are appended here, one JSON object per line.
+    pub decisions_path: PathBuf,
 }
 
 impl Config {
@@ -69,6 +83,19 @@ impl Config {
         if self.max_upload_bytes == 0 {
             return Err(ConfigError::Invalid("max_upload_bytes must be > 0".into()));
         }
+        if self.patch_bank_size == 0 {
+            return Err(ConfigError::Invalid("patch_bank_size must be > 0".into()));
+        }
+        if !(0.0..=100.0).contains(&self.shift_percentile) {
+            return Err(ConfigError::Invalid(
+                "shift_percentile must be in 0..=100".into(),
+            ));
+        }
+        if self.severity_low_max >= self.severity_med_max {
+            return Err(ConfigError::Invalid(
+                "severity_low_max must be below severity_med_max".into(),
+            ));
+        }
         Ok(())
     }
 }
@@ -88,6 +115,14 @@ threshold_percentile = 95.0
 uncertain_margin = 0.1
 server_bind = "127.0.0.1:0"
 max_upload_bytes = 1024
+device = "cpu"
+patch_bank_path = "b.safetensors"
+patch_bank_size = 100
+patch_seed = 1
+shift_percentile = 99.0
+severity_low_max = 5.0
+severity_med_max = 15.0
+decisions_path = "d.jsonl"
 "#;
 
     fn write(name: &str, text: &str) -> PathBuf {

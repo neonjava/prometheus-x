@@ -1,3 +1,4 @@
+pub mod patch;
 pub mod predict;
 pub mod score;
 pub mod store;
@@ -33,6 +34,10 @@ pub enum DetectorError {
         #[source]
         source: serde_json::Error,
     },
+    #[error("patch bank file {0} has no bank tensor")]
+    BadBank(PathBuf),
+    #[error(transparent)]
+    Candle(#[from] candle_core::Error),
     #[error(transparent)]
     Features(#[from] features::FeaturesError),
     #[error(transparent)]
@@ -41,6 +46,6 @@ pub enum DetectorError {
     Analysis(#[from] analysis::AnalysisError),
 }
 
-pub use predict::{predict, Prediction, Predictor};
+pub use predict::{predict, Finding, LogLine, ModelResult, Prediction, Predictor};
 pub use score::global_score;
-pub use verdict::{verdict, Verdict};
+pub use verdict::{fuse, verdict, Verdict};
