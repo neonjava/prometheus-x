@@ -6,10 +6,13 @@ edition = "2021"
 [dependencies]
 analysis = { path = "../analysis" }
 config = { path = "../config" }
+data = { path = "../data" }
 detector = { path = "../detector" }
 anyhow = "1.0.105"
 axum = { version = "0.8.9", features = ["multipart"] }
 image = "0.25.10"
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.149"
-tokio = { version = "1.49.0", features = ["macros", "rt-multi-thread", "net", "io-util"] }
+tokio = { version = "1.49.0", features = ["macros", "rt-multi-thread", "net", "io-util", "fs"] }
+zip = { version = "9.8.2", default-features = false, features = ["deflate-flate2"] }
+tower-http = { version = "0.7.1", features = ["fs"] }

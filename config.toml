@@ -17,6 +17,13 @@ shift_percentile = 99.0
 severity_low_max = 1.0
 severity_med_max = 3.0
 decisions_path = "data/decisions.jsonl"
+web_dir = "web"
+batches_dir = "data/batches"
+max_batch_bytes = 2147483648
+max_unpacked_bytes = 4294967296
+max_batch_files = 5000
+batch_workers = 2
+thumb_size = 240
 robustness_sample = 50
 
 # Photo changes used by `prometheus-x robustness`.

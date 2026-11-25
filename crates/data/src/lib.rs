@@ -71,7 +71,8 @@ pub fn perturb(image: &DynamicImage, change: &Perturbation) -> DynamicImage {
     }
 }
 
-fn is_image_extension(path: &Path) -> bool {
+/// True when the file name ends in an extension of a format the image crate can read.
+pub fn is_image_extension(path: &Path) -> bool {
     path.extension()
         .and_then(|ext| ext.to_str())
         .is_some_and(|ext| image::ImageFormat::from_extension(ext).is_some())

@@ -46,6 +46,6 @@ pub enum DetectorError {
     Analysis(#[from] analysis::AnalysisError),
 }
 
-pub use predict::{predict, Finding, LogLine, ModelResult, Prediction, Predictor};
+pub use predict::{predict, Finding, LogLine, ModelInfo, ModelResult, Prediction, Predictor};
 pub use score::global_score;
 pub use verdict::{fuse, verdict, Verdict};
