@@ -186,6 +186,8 @@ mod tests {
             severity_low_max: 1.0,
             severity_med_max: 2.0,
             decisions_path: PathBuf::new(),
+            robustness_sample: 1,
+            perturbations: Vec::new(),
         }
     }
 

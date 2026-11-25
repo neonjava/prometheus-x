@@ -1,5 +1,6 @@
 use std::path::{Path, PathBuf};
 
+use config::{Perturbation, PerturbationKind};
 use image::DynamicImage;
 use thiserror::Error;
 
@@ -57,6 +58,17 @@ pub fn load_images(path: &Path) -> Result<Vec<(PathBuf, DynamicImage)>> {
         }
     }
     Ok(images)
+}
+
+/// Returns a changed copy of `image`; `amount` is in the unit of the kind
+/// (brightness and hue in image-crate steps, contrast in percent, blur as sigma).
+pub fn perturb(image: &DynamicImage, change: &Perturbation) -> DynamicImage {
+    match change.kind {
+        PerturbationKind::Brightness => image.brighten(change.amount as i32),
+        PerturbationKind::Contrast => image.adjust_contrast(change.amount),
+        PerturbationKind::Blur => image.blur(change.amount),
+        PerturbationKind::Hue => image.huerotate(change.amount as i32),
+    }
 }
 
 fn is_image_extension(path: &Path) -> bool {
@@ -126,6 +138,19 @@ mod tests {
         std::fs::write(temp.path().join("notes.txt"), b"x").expect("write file");
         let listed = list_images(temp.path()).expect("list images");
         assert_eq!(listed, vec![temp.path().join("a.png")]);
+    }
+
+    #[test]
+    fn perturb_changes_pixels_and_keeps_size() {
+        let img = DynamicImage::ImageRgb8(RgbImage::from_fn(8, 8, |_, _| Rgb([100, 100, 100])));
+        let change = Perturbation {
+            name: "dark".into(),
+            kind: PerturbationKind::Brightness,
+            amount: -50.0,
+        };
+        let out = perturb(&img, &change);
+        assert_eq!((out.width(), out.height()), (8, 8));
+        assert!(out.to_rgb8().get_pixel(0, 0)[0] < 100);
     }
 
     #[test]

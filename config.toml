@@ -17,3 +17,30 @@ shift_percentile = 99.0
 severity_low_max = 1.0
 severity_med_max = 3.0
 decisions_path = "data/decisions.jsonl"
+robustness_sample = 50
+
+# Photo changes used by `prometheus-x robustness`.
+[[perturbations]]
+name = "darker"
+kind = "brightness"
+amount = -60.0
+
+[[perturbations]]
+name = "brighter"
+kind = "brightness"
+amount = 60.0
+
+[[perturbations]]
+name = "low contrast"
+kind = "contrast"
+amount = -40.0
+
+[[perturbations]]
+name = "blurry"
+kind = "blur"
+amount = 3.0
+
+[[perturbations]]
+name = "colour cast"
+kind = "hue"
+amount = 40.0
