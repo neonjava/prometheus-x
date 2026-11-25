@@ -1,0 +1,28 @@
+name: release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: build
+        run: cargo build --workspace --release
+      - name: package
+        run: |
+          mkdir dist
+          find target/release -maxdepth 1 -type f -executable -exec cp {} dist/ \;
+          cp config.toml dist/
+          tar -czf prometheus-x-linux.tar.gz -C dist .
+      - name: publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" prometheus-x-linux.tar.gz --generate-notes

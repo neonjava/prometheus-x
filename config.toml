@@ -1,0 +1,10 @@
+# Sample config: fill in locally. Code must read these, never hardcode them.
+model_weights_path = ""
+input_size = 0
+good_vectors_path = ""
+train_dir = ""
+val_dir = ""
+test_dir = ""
+threshold_percentile = 0.0
+uncertain_margin = 0.0
+server_bind = ""
