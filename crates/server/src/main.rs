@@ -133,12 +133,27 @@ fn read_decisions(path: &Path) -> Vec<serde_json::Value> {
         .collect()
 }
 
+fn read_decided_keys(path: &Path) -> std::collections::HashSet<String> {
+    std::fs::read_to_string(path)
+        .unwrap_or_default()
+        .lines()
+        .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
+        .filter_map(|v| v.get("image").and_then(|s| s.as_str()).map(String::from))
+        .collect()
+}
+
 /// Saved decisions, newest first.
 async fn decisions(State(state): State<Shared>) -> Json<Vec<serde_json::Value>> {
     let mut all = read_decisions(&state.decisions_path);
     all.reverse();
     all.truncate(MAX_DECISIONS_SHOWN);
     Json(all)
+}
+
+/// Photos needing human review that have not been decided yet.
+async fn pending(State(state): State<Shared>) -> Json<Vec<batch::PendingItem>> {
+    let decided = read_decided_keys(&state.decisions_path);
+    Json(state.batches.pending_reviews(&decided))
 }
 
 #[derive(Serialize)]
@@ -149,10 +164,13 @@ struct StatusResponse {
     patch_threshold: f32,
     reviews: usize,
     batches: usize,
+    waiting_for_review: usize,
 }
 
 async fn status(State(state): State<Shared>) -> Json<StatusResponse> {
     let info = state.model.info();
+    let decided = read_decided_keys(&state.decisions_path);
+    let waiting_for_review = state.batches.pending_reviews(&decided).len();
     Json(StatusResponse {
         good_vectors: info.good_vectors,
         patch_rows: info.patch_rows,
@@ -160,6 +178,7 @@ async fn status(State(state): State<Shared>) -> Json<StatusResponse> {
         patch_threshold: info.patch_threshold,
         reviews: read_decisions(&state.decisions_path).len(),
         batches: state.batches.count(),
+        waiting_for_review,
     })
 }
 
@@ -169,7 +188,9 @@ fn app(state: Shared, web_dir: &Path, max_upload_bytes: usize, max_batch_bytes: 
         .route("/predict", post(predict))
         .route("/decision", post(decision))
         .route("/decisions", get(decisions))
+        .route("/review/pending", get(pending))
         .route("/status", get(status))
+        .route("/batches", get(batch::list_endpoint))
         .route("/batch/{id}", get(batch::status))
         .route("/batch/{id}/item/{name}", get(batch::item))
         .route("/batch/{id}/thumb/{name}", get(batch::thumb))
@@ -471,5 +492,17 @@ mod tests {
         )
         .await;
         assert!(escape.contains("400") || escape.contains("404"));
+    }
+
+    #[tokio::test]
+    async fn batches_and_pending_reviews_are_served() {
+        let (addr, _) = start("f").await;
+        let batches_resp = send(addr, "GET", "/batches", "application/json", b"").await;
+        assert!(batches_resp.contains("200 OK"));
+        assert!(batches_resp.contains("[]"));
+
+        let pending_resp = send(addr, "GET", "/review/pending", "application/json", b"").await;
+        assert!(pending_resp.contains("200 OK"));
+        assert!(pending_resp.contains("[]"));
     }
 }

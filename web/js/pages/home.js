@@ -49,6 +49,7 @@ export async function mountHome(root) {
         <div class="figures">
           ${figure('Good images learned', 'f-good')}
           ${figure('Patch memory', 'f-patch')}
+          ${figure('Waiting for review', 'f-waiting')}
           ${figure('Reviews saved', 'f-reviews')}
         </div>
       </div>
@@ -88,6 +89,7 @@ export async function mountHome(root) {
     };
     set('f-good', s.good_vectors);
     set('f-patch', s.patch_rows);
+    set('f-waiting', s.waiting_for_review ?? 0);
     set('f-reviews', s.reviews);
   } catch {
     root.querySelector('.sub').textContent = 'The server is not answering. Start it and refresh this page.';

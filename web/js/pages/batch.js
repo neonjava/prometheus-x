@@ -1,9 +1,9 @@
 import {
-  csvUrl, getBatch, getItem, imageUrl, saveDecision, startBatch, thumbUrl,
+  csvUrl, getBatch, getBatches, getItem, imageUrl, saveDecision, startBatch, thumbUrl,
 } from '../api.js';
 import {
   bindDropzone, category, CATEGORY_LABEL, CATEGORY_TAG, Console, drawHeat, esc, formatBytes,
-  formatDuration, icon, resultHtml, reviewBox, SEVERITY_TAG, toast,
+  formatDuration, formatTime, icon, resultHtml, reviewBox, SEVERITY_TAG, toast,
 } from '../ui.js';
 
 const POLL_MS = 1000;
@@ -32,11 +32,17 @@ const store = {
     try { return localStorage.getItem(SAVE_KEY); } catch { return null; }
   },
   set(id) {
-    try { localStorage.setItem(SAVE_KEY, id); } catch { /* storage can be blocked; resuming is optional */ }
+    try { localStorage.setItem(SAVE_KEY, id); } catch {}
   },
 };
 
-// Higher means look at it sooner.
+// Module-level persistent state so navigating to Review and back loses nothing.
+const activeBatch = {
+  id: null, files: [], items: [], status: '', total: 0, done: 0, filter: 'all', query: '', sort: 'worst',
+  severity: 'any', selected: new Set(), decided: new Map(), shown: CHUNK, startedAt: 0, timer: null,
+  finishedToast: false,
+};
+
 function urgency(item) {
   const cat = category(item);
   if (cat === 'defect') return RANK_DEFECT + (SEVERITY_RANK[item.severity] ?? 0) * 100 + (item.defect_probability ?? 0) * 10;
@@ -59,8 +65,16 @@ function matchesFilter(item, filter) {
 
 export function mountBatch(root) {
   root.innerHTML = `
-    <div class="page-head"><div><h1>Batch dashboard</h1><p>Upload a zip or many photos and see which ones need attention.</p></div>
-      <a class="btn" id="export" href="#" hidden>${icon('download')} Export CSV</a></div>
+    <div class="page-head">
+      <div>
+        <h1>Batch dashboard</h1>
+        <p>Upload a zip or many photos and see which ones need attention.</p>
+      </div>
+      <div style="display:flex;gap:.6rem;align-items:center">
+        <button class="btn" id="new-batch" hidden>${icon('upload')} New batch</button>
+        <a class="btn" id="export" href="#" hidden>${icon('download')} Export CSV</a>
+      </div>
+    </div>
 
     <div class="card" id="intake">
       <div class="section-label">Add images</div>
@@ -68,9 +82,13 @@ export function mountBatch(root) {
       <input class="hidden-input" type="file" id="input" accept=".zip,image/*" multiple>
       <div class="actions" style="margin-top:.9rem">
         <button class="btn primary" id="start" disabled>Start batch</button>
-        <button class="btn" id="resume" hidden>Resume last batch</button>
       </div>
       <div class="notice danger" id="error" hidden></div>
+    </div>
+
+    <div class="card" id="recent-card" style="margin-top:1.4rem">
+      <div class="section-label">Recent batches</div>
+      <div id="recent-list"><div class="empty">Loading recent batches…</div></div>
     </div>
 
     <div class="card" id="progress-card" hidden style="margin-top:1.4rem">
@@ -96,27 +114,18 @@ export function mountBatch(root) {
     <div id="bulk"></div>`;
 
   const $ = (sel) => root.querySelector(sel);
-  const state = {
-    id: null, files: [], items: [], status: '', total: 0, done: 0, filter: 'all', query: '', sort: 'worst',
-    severity: 'any', selected: new Set(), decided: new Map(), shown: CHUNK, startedAt: 0, timer: null,
-    drawer: null, finishedToast: false,
-  };
-
-  // ---- intake -------------------------------------------------------------
+  let drawer = null;
 
   function setFiles(fileList) {
-    state.files = [...fileList];
-    const bytes = state.files.reduce((sum, f) => sum + f.size, 0);
-    const zips = state.files.filter((f) => /\.zip$/i.test(f.name)).length;
-    const parts = [`${state.files.length} file${state.files.length === 1 ? '' : 's'}`, formatBytes(bytes)];
+    activeBatch.files = [...fileList];
+    const bytes = activeBatch.files.reduce((sum, f) => sum + f.size, 0);
+    const zips = activeBatch.files.filter((f) => /\.zip$/i.test(f.name)).length;
+    const parts = [`${activeBatch.files.length} file${activeBatch.files.length === 1 ? '' : 's'}`, formatBytes(bytes)];
     if (zips) parts.push(`${zips} zip`);
     $('#picked').textContent = parts.join(' · ');
     $('#start').disabled = false;
   }
   bindDropzone($('#zone'), $('#input'), setFiles);
-
-  const savedId = store.get();
-  if (savedId) $('#resume').hidden = false;
 
   function showError(message) {
     $('#error').textContent = message;
@@ -129,12 +138,12 @@ export function mountBatch(root) {
     $('#progress-card').hidden = false;
     $('#progress-title').textContent = 'Uploading';
     try {
-      const { batch_id: id } = await startBatch(state.files, (fraction) => {
+      const { batch_id: id } = await startBatch(activeBatch.files, (fraction) => {
         $('#bar').style.width = `${Math.round(fraction * 100)}%`;
         $('#progress-left').textContent = `Uploading ${Math.round(fraction * 100)}%`;
         $('#progress-right').textContent = '';
       });
-      follow(id);
+      follow(id, true);
     } catch (err) {
       showError(err.message);
       $('#progress-card').hidden = true;
@@ -142,52 +151,115 @@ export function mountBatch(root) {
     }
   });
 
-  $('#resume').addEventListener('click', () => follow(savedId));
+  $('#new-batch').addEventListener('click', () => {
+    activeBatch.id = null;
+    activeBatch.items = [];
+    activeBatch.total = 0;
+    activeBatch.done = 0;
+    activeBatch.selected.clear();
+    clearInterval(activeBatch.timer);
+    activeBatch.timer = null;
+    store.set('');
+    $('#intake').hidden = false;
+    $('#new-batch').hidden = true;
+    $('#progress-card').hidden = true;
+    $('#tiles').hidden = true;
+    $('#toolbar').hidden = true;
+    $('#cards').innerHTML = '';
+    $('#alerts').innerHTML = '';
+    $('#export').hidden = true;
+    $('#bulk').innerHTML = '';
+    loadRecent();
+  });
 
-  // ---- following a batch ----------------------------------------------------
+  async function loadRecent() {
+    const listEl = $('#recent-list');
+    if (!listEl) return;
+    try {
+      const batches = await getBatches();
+      if (!batches.length) {
+        listEl.innerHTML = '<div class="empty">No batches yet.</div>';
+        return;
+      }
+      listEl.innerHTML = `<div class="table"><table>
+        <thead><tr><th>Time</th><th>Batch</th><th>Status</th><th>Counts</th><th style="text-align:right">Action</th></tr></thead>
+        <tbody>${batches.slice(0, 10).map((b) => {
+          const isCurrent = b.id === activeBatch.id;
+          const statusTag = b.status === 'done' ? 'ok' : b.status === 'failed' ? 'danger' : 'warn';
+          return `<tr>
+            <td class="num">${esc(formatTime(b.time))}</td>
+            <td><b>${esc(b.id)}</b></td>
+            <td><span class="tag ${statusTag}">${esc(b.status)}</span></td>
+            <td>${b.counts.total} items · ${b.counts.ok} OK · ${b.counts.review} review · ${b.counts.defect} defect</td>
+            <td style="text-align:right">
+              <button class="btn sm ${isCurrent ? 'primary' : ''}" data-open-b="${esc(b.id)}">
+                ${isCurrent ? 'Viewing' : 'Open'}
+              </button>
+            </td>
+          </tr>`;
+        }).join('')}</tbody></table></div>`;
+    } catch (err) {
+      listEl.innerHTML = `<div class="empty">Could not load recent batches: ${esc(err.message)}</div>`;
+    }
+  }
 
-  function follow(id) {
-    state.id = id;
-    state.items = [];
-    state.selected.clear();
-    state.finishedToast = false;
-    state.startedAt = Date.now();
+  $('#recent-card').addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-open-b]');
+    if (btn) follow(btn.dataset.openB, false);
+  });
+
+  function follow(id, isNew = false) {
+    if (isNew || activeBatch.id !== id) {
+      activeBatch.id = id;
+      activeBatch.items = [];
+      activeBatch.selected.clear();
+      activeBatch.finishedToast = false;
+      activeBatch.startedAt = Date.now();
+    }
     store.set(id);
     $('#intake').hidden = true;
+    $('#new-batch').hidden = false;
     $('#progress-card').hidden = false;
     $('#export').hidden = false;
     $('#export').href = csvUrl(id);
     $('#tiles').hidden = false;
     $('#toolbar').hidden = false;
-    clearInterval(state.timer);
+    $('#sort').value = activeBatch.sort;
+    $('#severity').value = activeBatch.severity;
+    $('#query').value = activeBatch.query;
+
+    clearInterval(activeBatch.timer);
     poll();
-    state.timer = setInterval(poll, POLL_MS);
+    activeBatch.timer = setInterval(poll, POLL_MS);
+    loadRecent();
   }
 
   async function poll() {
+    if (!activeBatch.id) return;
     try {
-      const data = await getBatch(state.id);
-      Object.assign(state, { items: data.items, status: data.status, total: data.total, done: data.done });
+      const data = await getBatch(activeBatch.id);
+      Object.assign(activeBatch, { items: data.items, status: data.status, total: data.total, done: data.done });
       paintProgress(data.error);
       paintAll();
       if (data.status === 'done' || data.status === 'failed') {
-        clearInterval(state.timer);
-        if (!state.finishedToast && data.status === 'done') toast(`Batch finished: ${data.items.length} images checked`);
-        state.finishedToast = true;
+        clearInterval(activeBatch.timer);
+        activeBatch.timer = null;
+        if (!activeBatch.finishedToast && data.status === 'done') toast(`Batch finished: ${data.items.length} images checked`);
+        activeBatch.finishedToast = true;
+        loadRecent();
       }
     } catch (err) {
-      clearInterval(state.timer);
-      $('#intake').hidden = false;
-      $('#tiles').hidden = true;
-      $('#toolbar').hidden = true;
-      showError(`Could not load the batch: ${err.message}`);
+      clearInterval(activeBatch.timer);
+      activeBatch.timer = null;
+      showError(`Could not load batch: ${err.message}`);
     }
   }
 
   function paintProgress(error) {
-    const { status, total, done } = state;
+    const { status, total, done } = activeBatch;
     const fraction = total ? done / total : 0;
-    $('#bar').style.width = `${Math.round(fraction * 100)}%`;
+    const bar = $('#bar');
+    if (bar) bar.style.width = `${Math.round(fraction * 100)}%`;
     if (status === 'failed') {
       $('#progress-title').textContent = 'Batch failed';
       $('#progress-left').textContent = error ?? 'Something went wrong';
@@ -199,7 +271,7 @@ export function mountBatch(root) {
       $('#progress-left').textContent = 'Reading the upload…';
       return;
     }
-    const seconds = (Date.now() - state.startedAt) / 1000;
+    const seconds = (Date.now() - activeBatch.startedAt) / 1000;
     const rate = done && seconds ? done / seconds : 0;
     if (status === 'done') {
       $('#progress-title').textContent = 'Finished';
@@ -214,154 +286,174 @@ export function mountBatch(root) {
     }
   }
 
-  // ---- list, tiles, alerts ----------------------------------------------------
-
   function visibleItems() {
-    const query = state.query.toLowerCase();
-    return state.items
-      .filter((item) => matchesFilter(item, state.filter))
-      .filter((item) => state.severity === 'any' || item.severity === state.severity)
-      .filter((item) => !query || item.name.toLowerCase().includes(query))
-      .sort(SORTS[state.sort]);
+    const query = activeBatch.query.toLowerCase();
+    return activeBatch.items
+      .filter((i) => matchesFilter(i, activeBatch.filter))
+      .filter((i) => !query || i.name.toLowerCase().includes(query))
+      .filter((i) => activeBatch.severity === 'any' || i.severity === activeBatch.severity)
+      .sort(SORTS[activeBatch.sort]);
   }
 
-  function counts() {
-    const c = { all: state.total || state.items.length, ok: 0, review: 0, defect: 0, shift: 0, error: 0 };
-    for (const item of state.items) {
-      c[category(item)] += 1;
-      if (item.shift_warning) c.shift += 1;
+  function paintTiles() {
+    const counts = { all: activeBatch.items.length, ok: 0, review: 0, defect: 0, shift: 0, error: 0 };
+    for (const item of activeBatch.items) {
+      const cat = category(item);
+      if (cat in counts) counts[cat] += 1;
+      if (item.shift_warning) counts.shift += 1;
     }
-    return c;
-  }
-
-  function paintTiles(c) {
     $('#tiles').innerHTML = TILES.map(
-      ([key, label, tone]) => `<button class="tile ${tone}" data-filter="${key}" aria-pressed="${state.filter === key}">
-        <div class="label"><i></i>${label}</div><div class="value">${c[key]}</div></button>`,
+      ([key, label, tag]) => `<div class="tile ${tag} ${activeBatch.filter === key ? 'active' : ''}" data-filter="${key}">
+        <b>${counts[key]}</b><small>${label}</small></div>`,
     ).join('');
   }
 
-  function paintAlerts(c) {
-    const judged = c.ok + c.review + c.defect;
-    let html = '';
-    if (judged >= MIN_FOR_BANNERS && c.defect / judged >= DEFECT_BANNER_RATE) {
-      html += `<div class="notice danger">High defect rate: ${Math.round((100 * c.defect) / judged)}% of this batch is defective. Check the line before continuing.</div>`;
+  function paintAlerts() {
+    const alerts = [];
+    const n = activeBatch.items.length;
+    if (n >= MIN_FOR_BANNERS) {
+      const defects = activeBatch.items.filter((i) => category(i) === 'defect').length;
+      if (defects / n >= DEFECT_BANNER_RATE) {
+        alerts.push(`<div class="notice danger">${icon('alert')}<b>High defect rate:</b> ${Math.round((defects / n) * 100)}% of checked images are defective. Stop the line.</div>`);
+      }
+      const shifts = activeBatch.items.filter((i) => i.shift_warning).length;
+      if (shifts / n >= SHIFT_BANNER_RATE) {
+        alerts.push(`<div class="notice warn">${icon('alert')}<b>Camera or lighting shift:</b> ${shifts} of ${n} images triggered shift warnings. Check the test jig.</div>`);
+      }
     }
-    if (judged >= MIN_FOR_BANNERS && c.shift / judged >= SHIFT_BANNER_RATE) {
-      html += `<div class="notice">Many photos look different from the training images (${c.shift} of ${judged}). Lighting or camera may have changed for this batch.</div>`;
-    }
-    $('#alerts').innerHTML = html;
+    $('#alerts').innerHTML = alerts.join('');
   }
 
   function cardHtml(item) {
     const cat = category(item);
-    const decided = state.decided.get(item.name);
-    const score = item.patch_score ?? item.global_score;
-    const right = decided
-      ? `<span class="tag ok">Reviewed: ${esc(decided)}</span>`
-      : item.severity
-        ? `<span class="tag ${SEVERITY_TAG[item.severity]}">${esc(item.severity)}</span>`
-        : '';
-    const picture = cat === 'error'
-      ? `<div class="err-text">${esc(item.error ?? 'Could not check this image')}</div>`
-      : `<img loading="lazy" alt="" src="${thumbUrl(state.id, item.name)}">`;
-    return `<div class="thumb-card ${cat} ${state.selected.has(item.name) ? 'selected' : ''}" role="button" tabindex="0" data-name="${esc(item.name)}">
-      <div class="img">${picture}
-        <span class="badge tag ${CATEGORY_TAG[cat]}">${CATEGORY_LABEL[cat]}</span>
-        ${item.shift_warning ? '<span class="shift-dot" title="Lighting or camera may have changed"></span>' : ''}
-        <span class="pick" data-pick title="Select">${icon('check')}</span>
+    const tagClass = CATEGORY_TAG[cat] ?? '';
+    const label = CATEGORY_LABEL[cat] ?? cat;
+    const isSelected = activeBatch.selected.has(item.name);
+    const decidedAs = activeBatch.decided.get(item.name);
+    const scoreText = item.patch_score != null ? `patch ${item.patch_score.toFixed(2)}`
+      : item.global_score != null ? `score ${item.global_score.toFixed(2)}`
+      : item.error ?? '';
+
+    return `<div class="pcard ${cat} ${isSelected ? 'selected' : ''}" data-name="${esc(item.name)}">
+      <input type="checkbox" class="card-check" ${isSelected ? 'checked' : ''} aria-label="Select ${esc(item.name)}">
+      <div class="thumb-wrap">
+        <img class="thumb" loading="lazy" src="${thumbUrl(activeBatch.id, item.name)}" alt="${esc(item.name)}"
+             onerror="this.style.opacity=.2">
+        <span class="tag pill ${tagClass}">${label}</span>
       </div>
-      <div class="name" title="${esc(item.name)}">${esc(item.name)}</div>
-      <div class="meta"><span>${score == null ? '' : `score ${score.toFixed(2)}`}</span>${right}</div>
+      <div class="pbody">
+        <b class="name" title="${esc(item.name)}">${esc(item.name)}</b>
+        <div class="meta">
+          <small class="score">${esc(scoreText)}</small>
+          ${item.severity ? `<span class="tag ${SEVERITY_TAG[item.severity] ?? ''}">${item.severity}</span>` : ''}
+          ${item.shift_warning ? `<span class="tag warn">shift</span>` : ''}
+          ${decidedAs ? `<span class="tag">${decidedAs}</span>` : ''}
+        </div>
+      </div>
     </div>`;
   }
 
   function paintCards() {
     const list = visibleItems();
-    if (!list.length) {
-      $('#cards').innerHTML = `<div class="empty" style="grid-column:1/-1">${state.items.length ? 'Nothing matches these filters.' : 'Waiting for the first results…'}</div>`;
-      $('#more').hidden = true;
-      return;
-    }
-    $('#cards').innerHTML = list.slice(0, state.shown).map(cardHtml).join('');
-    $('#more').hidden = list.length <= state.shown;
-    $('#more').textContent = `Show more (${list.length - state.shown} left)`;
+    const visible = list.slice(0, activeBatch.shown);
+    $('#cards').innerHTML = visible.length
+      ? visible.map(cardHtml).join('')
+      : `<div class="empty">No images match this filter.</div>`;
+    $('#more').hidden = visible.length >= list.length;
+    $('#more').textContent = `Show more (${list.length - visible.length} left)`;
   }
 
   function paintBulk() {
-    const n = state.selected.size;
-    $('#bulk').innerHTML = n
-      ? `<div class="bulkbar"><b>${n} selected</b>
-          <button class="btn sm" data-bulk="ok">OK</button><button class="btn sm" data-bulk="reject">Reject</button>
-          <button class="btn sm" data-bulk="fix">Fix</button><button class="btn sm" data-bulk="clear">${icon('x')} Clear</button></div>`
-      : '';
+    const count = activeBatch.selected.size;
+    const bar = $('#bulk');
+    if (!count) {
+      bar.innerHTML = '';
+      return;
+    }
+    bar.innerHTML = `<div class="bulk-bar">
+      <span><b>${count}</b> selected</span>
+      <button class="btn sm ok" data-bulk="ok">Mark OK</button>
+      <button class="btn sm danger" data-bulk="reject">Reject</button>
+      <button class="btn sm warn" data-bulk="fix">Fix</button>
+      <button class="btn sm" data-bulk="clear">Clear</button>
+    </div>`;
   }
 
-  // Results arrive while the batch runs; repaint at most once per frame.
-  let queued = false;
   function paintAll() {
-    if (queued) return;
-    queued = true;
-    requestAnimationFrame(() => {
-      queued = false;
-      const c = counts();
-      paintTiles(c);
-      paintAlerts(c);
-      paintCards();
-      paintBulk();
-    });
+    paintTiles();
+    paintAlerts();
+    paintCards();
+    paintBulk();
   }
 
   $('#tiles').addEventListener('click', (e) => {
     const tile = e.target.closest('[data-filter]');
     if (!tile) return;
-    state.filter = state.filter === tile.dataset.filter ? 'all' : tile.dataset.filter;
-    state.shown = CHUNK;
-    paintAll();
-  });
-  $('#query').addEventListener('input', (e) => { state.query = e.target.value; state.shown = CHUNK; paintAll(); });
-  $('#sort').addEventListener('change', (e) => { state.sort = e.target.value; paintAll(); });
-  $('#severity').addEventListener('change', (e) => { state.severity = e.target.value; state.shown = CHUNK; paintAll(); });
-  $('#more').addEventListener('click', () => { state.shown += CHUNK; paintAll(); });
-  $('#select-review').addEventListener('click', () => {
-    state.items.filter((i) => category(i) === 'review').forEach((i) => state.selected.add(i.name));
+    activeBatch.filter = tile.dataset.filter;
+    activeBatch.shown = CHUNK;
     paintAll();
   });
 
-  function toggleSelect(name) {
-    if (state.selected.has(name)) state.selected.delete(name);
-    else state.selected.add(name);
+  $('#query').addEventListener('input', (e) => {
+    activeBatch.query = e.target.value;
+    activeBatch.shown = CHUNK;
+    paintCards();
+  });
+
+  $('#sort').addEventListener('change', (e) => {
+    activeBatch.sort = e.target.value;
+    paintCards();
+  });
+
+  $('#severity').addEventListener('change', (e) => {
+    activeBatch.severity = e.target.value;
+    activeBatch.shown = CHUNK;
+    paintCards();
+  });
+
+  $('#more').addEventListener('click', () => {
+    activeBatch.shown += CHUNK;
+    paintCards();
+  });
+
+  $('#select-review').addEventListener('click', () => {
+    for (const item of activeBatch.items) {
+      if (category(item) === 'review') activeBatch.selected.add(item.name);
+    }
     paintAll();
-  }
+  });
 
   $('#cards').addEventListener('click', (e) => {
-    const card = e.target.closest('.thumb-card');
+    const check = e.target.closest('.card-check');
+    const card = e.target.closest('.pcard');
     if (!card) return;
-    if (e.target.closest('[data-pick]')) toggleSelect(card.dataset.name);
-    else openDrawer(card.dataset.name);
-  });
-  $('#cards').addEventListener('keydown', (e) => {
-    const card = e.target.closest('.thumb-card');
-    if (card && (e.key === 'Enter' || e.key === ' ')) {
-      e.preventDefault();
-      openDrawer(card.dataset.name);
+    const { name } = card.dataset;
+    if (check || e.shiftKey) {
+      if (activeBatch.selected.has(name)) activeBatch.selected.delete(name);
+      else activeBatch.selected.add(name);
+      paintAll();
+      return;
     }
+    openDrawer(name);
   });
-
-  // ---- decisions ---------------------------------------------------------------
 
   async function decide(names, decision) {
-    const verdictOf = (name) => state.items.find((i) => i.name === name)?.verdict ?? '';
     let failed = 0;
-    for (let i = 0; i < names.length; i += SAVE_PARALLEL) {
-      const results = await Promise.allSettled(
-        names.slice(i, i + SAVE_PARALLEL).map((name) =>
-          saveDecision(`${state.id}/${name}`, verdictOf(name), decision).then(() => state.decided.set(name, decision))),
-      );
-      failed += results.filter((r) => r.status === 'rejected').length;
+    const chunks = [];
+    for (let i = 0; i < names.length; i += SAVE_PARALLEL) chunks.push(names.slice(i, i + SAVE_PARALLEL));
+    for (const chunk of chunks) {
+      await Promise.all(chunk.map(async (name) => {
+        const item = activeBatch.items.find((i) => i.name === name);
+        try {
+          await saveDecision(`${activeBatch.id}/${name}`, item?.verdict ?? 'Uncertain', decision);
+          activeBatch.decided.set(name, decision);
+        } catch {
+          failed += 1;
+        }
+      }));
     }
-    if (failed) toast(`${failed} decision${failed === 1 ? '' : 's'} could not be saved`, 'error');
-    else toast(`Saved ${decision.toUpperCase()} for ${names.length} image${names.length === 1 ? '' : 's'}`);
+    if (failed) toast(`Saved ${decision.toUpperCase()}, but ${failed} failed`);
+    else toast(`Marked ${decision.toUpperCase()} for ${names.length} image${names.length === 1 ? '' : 's'}`);
     paintAll();
     return failed === 0;
   }
@@ -370,25 +462,24 @@ export function mountBatch(root) {
     const button = e.target.closest('[data-bulk]');
     if (!button) return;
     if (button.dataset.bulk === 'clear') {
-      state.selected.clear();
+      activeBatch.selected.clear();
       paintAll();
       return;
     }
-    const names = [...state.selected];
-    if (await decide(names, button.dataset.bulk)) state.selected.clear();
+    const names = [...activeBatch.selected];
+    if (await decide(names, button.dataset.bulk)) activeBatch.selected.clear();
     paintAll();
   });
 
-  // ---- detail drawer -------------------------------------------------------------
-
+  // ---- drawer -----------------------------------------------------------------
   const itemCache = new Map();
 
   function closeDrawer() {
-    if (!state.drawer) return;
-    document.removeEventListener('keydown', state.drawer.onKey);
-    window.removeEventListener('resize', state.drawer.onResize);
-    state.drawer.el.remove();
-    state.drawer = null;
+    if (!drawer) return;
+    document.removeEventListener('keydown', drawer.onKey);
+    window.removeEventListener('resize', drawer.onResize);
+    drawer.el.remove();
+    drawer = null;
   }
 
   function openDrawer(name) {
@@ -396,29 +487,28 @@ export function mountBatch(root) {
     const el = document.createElement('div');
     el.className = 'backdrop';
     document.body.append(el);
-    state.drawer = { el, name, heatOn: true, onKey: null, onResize: null };
-    state.drawer.onKey = (e) => {
+    drawer = { el, name, heatOn: true, onKey: null, onResize: null };
+    drawer.onKey = (e) => {
       if (e.key === 'Escape') closeDrawer();
       if (e.key === 'ArrowRight') step(1);
       if (e.key === 'ArrowLeft') step(-1);
     };
-    document.addEventListener('keydown', state.drawer.onKey);
+    document.addEventListener('keydown', drawer.onKey);
     el.addEventListener('click', (e) => e.target === el && closeDrawer());
     fillDrawer();
   }
 
   function step(direction) {
     const list = visibleItems();
-    const at = list.findIndex((i) => i.name === state.drawer.name);
+    const at = list.findIndex((i) => i.name === drawer.name);
     const next = list[at + direction];
     if (next) {
-      state.drawer.name = next.name;
+      drawer.name = next.name;
       fillDrawer();
     }
   }
 
   async function fillDrawer() {
-    const drawer = state.drawer;
     if (!drawer) return;
     const { name } = drawer;
     const list = visibleItems();
@@ -435,40 +525,40 @@ export function mountBatch(root) {
     drawer.el.querySelector('[data-prev]').onclick = () => step(-1);
     drawer.el.querySelector('[data-next]').onclick = () => step(1);
 
-    let item = itemCache.get(`${state.id}/${name}`);
+    let item = itemCache.get(`${activeBatch.id}/${name}`);
     try {
       if (!item) {
-        item = await getItem(state.id, name);
-        itemCache.set(`${state.id}/${name}`, item);
+        item = await getItem(activeBatch.id, name);
+        itemCache.set(`${activeBatch.id}/${name}`, item);
       }
     } catch (err) {
       drawer.el.querySelector('#d-left').innerHTML = `<div class="notice danger">${esc(err.message)}</div>`;
       return;
     }
-    if (state.drawer !== drawer || drawer.name !== name) return;
+    if (!drawer || drawer.name !== name) return;
     paintDrawerItem(drawer, item);
   }
 
-  function paintDrawerItem(drawer, item) {
-    const left = drawer.el.querySelector('#d-left');
-    const right = drawer.el.querySelector('#d-right');
+  function paintDrawerItem(d, item) {
+    const left = d.el.querySelector('#d-left');
+    const right = d.el.querySelector('#d-right');
     if (!item.response) {
       left.innerHTML = `<div class="notice danger">${esc(item.error ?? 'No result for this image')}</div>`;
       return;
     }
     const r = item.response;
-    left.innerHTML = `<div class="preview-wrap"><img id="d-img" alt="${esc(item.name)}" src="${imageUrl(state.id, item.name)}"><canvas id="d-heat"></canvas></div>
+    left.innerHTML = `<div class="preview-wrap"><img id="d-img" alt="${esc(item.name)}" src="${imageUrl(activeBatch.id, item.name)}"><canvas id="d-heat"></canvas></div>
       ${r.finding ? `<label class="check-row"><input type="checkbox" id="d-heat-on" checked> show where (heatmap)</label>` : ''}`;
     right.innerHTML = `${resultHtml(r)}${r.needs_review ? reviewBox() : ''}
       <div class="section-label" style="margin-top:1rem">Steps</div><div class="console short" id="d-console"></div>`;
 
     const paint = () => drawHeat(left.querySelector('#d-heat'), left.querySelector('#d-img'), r.finding,
-      r.patch ? r.patch.threshold : 0, drawer.heatOn);
+      r.patch ? r.patch.threshold : 0, d.heatOn);
     left.querySelector('#d-img').addEventListener('load', paint);
-    drawer.onResize = paint;
+    d.onResize = paint;
     window.addEventListener('resize', paint);
     const toggle = left.querySelector('#d-heat-on');
-    if (toggle) toggle.addEventListener('change', () => { drawer.heatOn = toggle.checked; paint(); });
+    if (toggle) toggle.addEventListener('change', () => { d.heatOn = toggle.checked; paint(); });
 
     new Console(right.querySelector('#d-console')).replay(r, false);
     right.addEventListener('click', async (e) => {
@@ -477,8 +567,15 @@ export function mountBatch(root) {
     });
   }
 
+  // Auto-resume last active batch if present.
+  const resumeId = activeBatch.id || store.get();
+  if (resumeId) {
+    follow(resumeId, false);
+  } else {
+    loadRecent();
+  }
+
   return () => {
-    clearInterval(state.timer);
     closeDrawer();
   };
 }

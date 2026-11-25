@@ -6,7 +6,9 @@ async function parse(res) {
 }
 
 export const getStatus = () => fetch('/status').then(parse);
+export const getBatches = () => fetch('/batches').then(parse);
 export const getDecisions = () => fetch('/decisions').then(parse);
+export const getPendingReviews = () => fetch('/review/pending').then(parse);
 export const getBatch = (id) => fetch(`/batch/${encodeURIComponent(id)}`).then(parse);
 export const getItem = (id, name) =>
   fetch(`/batch/${encodeURIComponent(id)}/item/${encodeURIComponent(name)}`).then(parse);

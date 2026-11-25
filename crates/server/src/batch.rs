@@ -17,6 +17,7 @@ use tokio::io::AsyncWriteExt;
 
 use crate::responses::PredictionResponse;
 use crate::state::{bad_request, internal, not_found, ApiError, Shared};
+use detector::Verdict;
 
 const RESULTS_FILE: &str = "results.jsonl";
 const IMAGES_DIR: &str = "images";
@@ -61,6 +62,39 @@ pub struct BatchStatus {
     done: usize,
     error: Option<String>,
     items: Vec<Summary>,
+}
+
+#[derive(Debug, Serialize, Clone, PartialEq)]
+pub struct BatchCounts {
+    pub total: usize,
+    pub done: usize,
+    pub ok: usize,
+    pub review: usize,
+    pub defect: usize,
+    pub error: usize,
+}
+
+#[derive(Debug, Serialize, Clone, PartialEq)]
+pub struct BatchListItem {
+    pub id: String,
+    pub time: u64,
+    pub status: String,
+    pub counts: BatchCounts,
+}
+
+#[derive(Debug, Serialize, Clone, PartialEq)]
+pub struct PendingItem {
+    pub batch_id: String,
+    pub batch_name: String,
+    pub image: String,
+    pub name: String,
+    pub verdict: String,
+    pub thumb_url: String,
+    pub time_unix: u64,
+    pub global_score: Option<f32>,
+    pub patch_score: Option<f32>,
+    pub severity: Option<String>,
+    pub defect_probability: Option<f32>,
 }
 
 struct Job {
@@ -136,6 +170,135 @@ impl Batches {
         job.done.store(records.len(), Ordering::Relaxed);
         *job.records.lock().ok()? = records;
         Some(Arc::new(job))
+    }
+
+    /// All known batches from memory and disk, newest first.
+    pub fn list(&self) -> Vec<BatchListItem> {
+        let entries = match fs::read_dir(&self.settings.dir) {
+            Ok(iter) => iter.filter_map(Result::ok).collect::<Vec<_>>(),
+            Err(_) => return Vec::new(),
+        };
+
+        let mut items = Vec::new();
+        for entry in entries {
+            let file_name = entry.file_name();
+            let id = match file_name.to_str() {
+                Some(s) if valid_id(s) => s.to_string(),
+                _ => continue,
+            };
+
+            let time = id
+                .split('-')
+                .next()
+                .and_then(|h| u64::from_str_radix(h, 16).ok())
+                .unwrap_or(0);
+
+            if let Some(job) = self.jobs.lock().ok().and_then(|j| j.get(&id).cloned()) {
+                let status = job
+                    .status
+                    .lock()
+                    .map(|s| s.clone())
+                    .unwrap_or_else(|_| "running".to_string());
+                let total = job.total.load(Ordering::Relaxed);
+                let done = job.done.load(Ordering::Relaxed);
+                let records = job.records.lock().map(|r| r.clone()).unwrap_or_default();
+                let counts = compute_counts(total, done, &records);
+                items.push(BatchListItem {
+                    id,
+                    time,
+                    status,
+                    counts,
+                });
+            } else {
+                let records =
+                    read_records(&self.batch_dir(&id).join(RESULTS_FILE)).unwrap_or_default();
+                let counts = compute_counts(records.len(), records.len(), &records);
+                items.push(BatchListItem {
+                    id,
+                    time,
+                    status: "done".to_string(),
+                    counts,
+                });
+            }
+        }
+        items.sort_by(|a, b| b.time.cmp(&a.time));
+        items
+    }
+
+    /// Photos that need human review and have no saved decision yet.
+    pub fn pending_reviews(
+        &self,
+        decided_keys: &std::collections::HashSet<String>,
+    ) -> Vec<PendingItem> {
+        let mut pending = Vec::new();
+        for batch in self.list() {
+            let records = if let Some(job) = self
+                .jobs
+                .lock()
+                .ok()
+                .and_then(|j| j.get(&batch.id).cloned())
+            {
+                job.records.lock().map(|r| r.clone()).unwrap_or_default()
+            } else {
+                read_records(&self.batch_dir(&batch.id).join(RESULTS_FILE)).unwrap_or_default()
+            };
+
+            for r in records {
+                if let Some(resp) = r.response {
+                    if resp.needs_review {
+                        let key = format!("{}/{}", batch.id, r.name);
+                        if !decided_keys.contains(&key) {
+                            pending.push(PendingItem {
+                                batch_id: batch.id.clone(),
+                                batch_name: batch.id.clone(),
+                                image: key,
+                                name: r.name.clone(),
+                                verdict: resp.verdict.as_str().to_string(),
+                                thumb_url: format!("/batch/{}/thumb/{}", batch.id, r.name),
+                                time_unix: batch.time,
+                                global_score: Some(resp.global.score),
+                                patch_score: resp.patch.as_ref().map(|p| p.score),
+                                severity: resp.finding.as_ref().map(|f| f.severity.to_string()),
+                                defect_probability: resp
+                                    .finding
+                                    .as_ref()
+                                    .map(|f| f.defect_probability),
+                            });
+                        }
+                    }
+                }
+            }
+        }
+        pending.sort_by(|a, b| b.time_unix.cmp(&a.time_unix));
+        pending
+    }
+}
+
+fn compute_counts(total: usize, done: usize, records: &[Record]) -> BatchCounts {
+    let mut ok = 0;
+    let mut review = 0;
+    let mut defect = 0;
+    let mut error = 0;
+    for r in records {
+        if r.error.is_some() {
+            error += 1;
+        } else if let Some(resp) = &r.response {
+            if resp.needs_review {
+                review += 1;
+            } else if resp.verdict == Verdict::Defect {
+                defect += 1;
+            } else {
+                ok += 1;
+            }
+        }
+    }
+    BatchCounts {
+        total,
+        done,
+        ok,
+        review,
+        defect,
+        error,
     }
 }
 
@@ -495,6 +658,10 @@ pub async fn status(
     }))
 }
 
+pub async fn list_endpoint(State(state): State<Shared>) -> Json<Vec<BatchListItem>> {
+    Json(state.batches.list())
+}
+
 #[derive(Serialize)]
 pub struct Item {
     name: String,
@@ -729,5 +896,91 @@ mod tests {
         let csv = to_csv(&records);
         assert!(csv.starts_with("name,verdict"));
         assert!(csv.contains("good.png,Defect,false"));
+    }
+
+    #[test]
+    fn batches_list_and_pending_reviews() {
+        use crate::responses::{ModelResponse, ShiftResponse};
+        use std::collections::HashSet;
+
+        let dir = temp_dir("list_pending");
+        let batches = Batches::new(settings(&dir, 10, 1 << 20));
+        let batch = dir.join("1000-0");
+        fs::create_dir_all(&batch).expect("create batch dir");
+
+        let p1 = PredictionResponse {
+            verdict: "Good".to_string(),
+            needs_review: false,
+            global: ModelResponse {
+                score: 1.0,
+                threshold: 5.0,
+                vote: "Good".to_string(),
+            },
+            patch: None,
+            finding: None,
+            shift: ShiftResponse {
+                distance: 0.1,
+                limit: 1.0,
+                warning: false,
+            },
+            log: Vec::new(),
+        };
+        let p2 = PredictionResponse {
+            verdict: "Uncertain".to_string(),
+            needs_review: true,
+            global: ModelResponse {
+                score: 5.5,
+                threshold: 5.0,
+                vote: "Defect".to_string(),
+            },
+            patch: None,
+            finding: None,
+            shift: ShiftResponse {
+                distance: 0.1,
+                limit: 1.0,
+                warning: false,
+            },
+            log: Vec::new(),
+        };
+        let r1 = Record {
+            name: "img1.png".to_string(),
+            response: Some(p1),
+            error: None,
+        };
+        let r2 = Record {
+            name: "img2.png".to_string(),
+            response: Some(p2),
+            error: None,
+        };
+        let mut file = File::create(batch.join(RESULTS_FILE)).expect("create results");
+        writeln!(
+            file,
+            "{}",
+            serde_json::to_string(&r1).expect("serialize r1")
+        )
+        .expect("write r1");
+        writeln!(
+            file,
+            "{}",
+            serde_json::to_string(&r2).expect("serialize r2")
+        )
+        .expect("write r2");
+
+        let list = batches.list();
+        assert_eq!(list.len(), 1);
+        assert_eq!(list[0].id, "1000-0");
+        assert_eq!(list[0].counts.total, 2);
+        assert_eq!(list[0].counts.ok, 1);
+        assert_eq!(list[0].counts.review, 1);
+
+        let mut decided = HashSet::new();
+        let pending = batches.pending_reviews(&decided);
+        assert_eq!(pending.len(), 1);
+        assert_eq!(pending[0].image, "1000-0/img2.png");
+        assert_eq!(pending[0].verdict, "Uncertain");
+
+        decided.insert("1000-0/img2.png".to_string());
+        let pending_after = batches.pending_reviews(&decided);
+        assert_eq!(pending_after.len(), 0);
     }
 }
