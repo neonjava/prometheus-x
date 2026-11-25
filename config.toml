@@ -22,7 +22,7 @@ batches_dir = "data/batches"
 max_batch_bytes = 2147483648
 max_unpacked_bytes = 4294967296
 max_batch_files = 5000
-batch_workers = 2
+batch_workers = 5
 thumb_size = 240
 robustness_sample = 50
 
