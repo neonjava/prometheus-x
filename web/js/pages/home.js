@@ -18,6 +18,7 @@ const LINKS = {
   inspect: [
     ['#/check', 'scan', 'Check one image', 'Drop a photo and watch each step'],
     ['#/batch', 'grid', 'Check a batch', 'Upload a zip or many photos at once'],
+    ['#/camera', 'camera', 'Camera check', 'Teach an object by filming it, then inspect it live'],
   ],
   followUp: [
     ['#/review', 'review', 'Review queue', 'Decisions people have saved'],

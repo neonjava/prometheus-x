@@ -31,6 +31,13 @@ products_dir = "models/products"
 default_product = "pcb1"
 # A photo farther than this multiple of the closest product's limit is "unknown product".
 unknown_ratio = 3.0
+# Camera mode: teach a product by filming it, then inspect it live.
+captures_dir = "data/captures"
+camera_min_frames = 20
+camera_val_every = 5
+camera_threshold_percentile = 100.0
+camera_threshold_slack = 1.2
+camera_patch_bank_size = 8000
 robustness_sample = 50
 
 # Photo changes used by `prometheus-x robustness`.

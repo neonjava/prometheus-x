@@ -53,3 +53,29 @@ export function startBatch(files, onProgress) {
     xhr.send(data);
   });
 }
+
+// ---- camera mode ----------------------------------------------------------
+
+export const getLive = () => fetch('/live').then(parse);
+export const liveFrameUrl = (seq) => `/live/frame.jpg?seq=${seq}`;
+
+export async function pushFrame(blob) {
+  const data = new FormData();
+  data.append('image', blob, 'frame.jpg');
+  const res = await fetch('/live/frame', { method: 'POST', body: data });
+  if (!res.ok) throw new Error(`${res.status}: ${await res.text()}`);
+}
+
+export function predictFrame(blob, product) {
+  const data = new FormData();
+  data.append('product', product);
+  data.append('live', '1');
+  data.append('image', blob, 'frame.jpg');
+  return fetch('/predict', { method: 'POST', body: data }).then(parse);
+}
+
+export function learnProduct(name, blobs) {
+  const data = new FormData();
+  blobs.forEach((blob, i) => data.append('image', blob, `${i}.jpg`));
+  return fetch(`/products/${encodeURIComponent(name)}/learn`, { method: 'POST', body: data }).then(parse);
+}

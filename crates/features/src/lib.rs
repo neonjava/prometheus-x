@@ -197,6 +197,12 @@ mod tests {
             products_dir: PathBuf::new(),
             default_product: String::new(),
             unknown_ratio: 2.0,
+            captures_dir: PathBuf::new(),
+            camera_min_frames: 2,
+            camera_val_every: 2,
+            camera_threshold_percentile: 100.0,
+            camera_threshold_slack: 1.0,
+            camera_patch_bank_size: 1,
             robustness_sample: 1,
             perturbations: Vec::new(),
         }

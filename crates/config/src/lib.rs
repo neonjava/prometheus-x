@@ -88,6 +88,17 @@ pub struct Config {
     pub default_product: String,
     /// A photo farther than this multiple of the closest product's limit is an unknown product.
     pub unknown_ratio: f32,
+    /// Frames captured from the camera are kept here.
+    pub captures_dir: PathBuf,
+    pub camera_min_frames: usize,
+    /// Every n-th camera frame is held out to set the limits.
+    pub camera_val_every: usize,
+    /// Percentile (0-100) of held-out frame scores used for camera products.
+    pub camera_threshold_percentile: f32,
+    /// Camera limits are multiplied by this, since a live view varies more than a few frames show.
+    pub camera_threshold_slack: f32,
+    /// Patches kept for a camera product; fewer means faster live checks.
+    pub camera_patch_bank_size: usize,
     /// Images per class (good, defect) used by the robustness test.
     pub robustness_sample: usize,
     #[serde(default)]
@@ -143,6 +154,20 @@ impl Config {
         if self.unknown_ratio <= 1.0 {
             return Err(ConfigError::Invalid("unknown_ratio must be > 1".into()));
         }
+        if self.camera_val_every < 2 || self.camera_min_frames < self.camera_val_every {
+            return Err(ConfigError::Invalid(
+                "camera_val_every must be >= 2 and <= camera_min_frames".into(),
+            ));
+        }
+        if !(0.0..=100.0).contains(&self.camera_threshold_percentile)
+            || self.camera_threshold_slack < 1.0
+            || self.camera_patch_bank_size == 0
+        {
+            return Err(ConfigError::Invalid(
+                "camera_threshold_percentile must be 0..=100 and camera_threshold_slack >= 1"
+                    .into(),
+            ));
+        }
         if self.patch_bank_size == 0 {
             return Err(ConfigError::Invalid("patch_bank_size must be > 0".into()));
         }
@@ -194,6 +219,12 @@ min_mean_brightness = 10.0
 products_dir = "p"
 default_product = "x"
 unknown_ratio = 3.0
+captures_dir = "c"
+camera_min_frames = 10
+camera_val_every = 5
+camera_threshold_percentile = 100.0
+camera_threshold_slack = 1.2
+camera_patch_bank_size = 100
 robustness_sample = 5
 
 [[perturbations]]

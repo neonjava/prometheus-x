@@ -224,3 +224,17 @@ export function mountHeatView(host, src, result) {
   });
   return () => observer.disconnect();
 }
+
+/** Draws the heat and spots of one result onto `canvas`, for the live camera view. */
+export function drawFinding(canvas, result, show) {
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  const { finding } = result;
+  if (!show || !finding || !result.patch) return;
+  const spots = findSpots(finding, result.patch.threshold);
+  if (!spots.length) return;
+  ctx.globalAlpha = prefs.strength / 100;
+  ctx.drawImage(heatImage(finding, result.patch.threshold), 0, 0, canvas.width, canvas.height);
+  ctx.globalAlpha = 1;
+  drawSpots(ctx, spots, canvas.width / finding.grid[1], canvas.height / finding.grid[0]);
+}

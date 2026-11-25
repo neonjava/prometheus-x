@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use axum::http::StatusCode;
@@ -6,12 +6,15 @@ use detector::{Catalog, ModelInfo, Outcome};
 use image::DynamicImage;
 
 use crate::batch::Batches;
+use crate::camera::Live;
 
 /// Anything that can judge an image; lets tests run without model weights.
 pub trait Model: Send + Sync + 'static {
     /// `product` is None to detect the product from the photo.
     fn predict(&self, image: &DynamicImage, product: Option<&str>) -> Result<Outcome, String>;
     fn products(&self) -> Vec<(String, ModelInfo)>;
+    /// Learns a camera product from the frames saved in `frames_dir`.
+    fn learn(&self, name: &str, frames_dir: &Path) -> Result<ModelInfo, String>;
 }
 
 impl Model for Catalog {
@@ -21,6 +24,10 @@ impl Model for Catalog {
 
     fn products(&self) -> Vec<(String, ModelInfo)> {
         Catalog::products(self)
+    }
+
+    fn learn(&self, name: &str, frames_dir: &Path) -> Result<ModelInfo, String> {
+        Catalog::learn(self, name, frames_dir).map_err(|e| e.to_string())
     }
 }
 
@@ -34,6 +41,14 @@ pub struct AppState {
     pub decisions_path: PathBuf,
     pub batches: Batches,
     pub min_mean_brightness: f32,
+    pub camera: CameraSettings,
+    pub live: Live,
+}
+
+pub struct CameraSettings {
+    pub dir: PathBuf,
+    pub min_frames: usize,
+    pub val_every: usize,
 }
 
 impl AppState {
@@ -67,6 +82,14 @@ pub mod testing {
     use detector::{Finding, LogLine, ModelResult, Prediction, Verdict};
 
     use super::*;
+
+    pub fn camera_settings(dir: &Path) -> CameraSettings {
+        CameraSettings {
+            dir: dir.to_path_buf(),
+            min_frames: 4,
+            val_every: 2,
+        }
+    }
 
     /// Always answers Defect with a small heatmap.
     pub struct StubModel;
@@ -112,8 +135,20 @@ pub mod testing {
                 patch_rows: 4,
                 global_threshold: 5.0,
                 patch_threshold: 6.0,
+                camera: false,
             };
             vec![("stub".to_string(), info)]
+        }
+
+        fn learn(&self, _name: &str, frames_dir: &Path) -> Result<ModelInfo, String> {
+            let count = |sub: &str| std::fs::read_dir(frames_dir.join(sub)).map(Iterator::count);
+            Ok(ModelInfo {
+                good_vectors: count("train/good").map_err(|e| e.to_string())?,
+                patch_rows: count("val/good").map_err(|e| e.to_string())?,
+                global_threshold: 1.0,
+                patch_threshold: 1.0,
+                camera: true,
+            })
         }
     }
 }

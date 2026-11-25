@@ -47,11 +47,22 @@ Every path, size and threshold is in [`config.toml`](config.toml). Use `--config
 | `server_bind`, `max_upload_bytes`, `decisions_path`, `web_dir` | server address, single-image upload limit, where review decisions are saved, folder with the page files |
 | `batches_dir`, `max_batch_bytes`, `max_unpacked_bytes`, `max_batch_files`, `batch_workers`, `thumb_size` | where batches are kept, upload and zip-unpack limits, file cap, images checked at once, thumbnail size |
 | `products_dir`, `default_product`, `unknown_ratio` | trained products folder, name of the main model, how far a photo may be before it is unknown |
+| `captures_dir`, `camera_min_frames`, `camera_val_every` | where camera frames go, the fewest frames needed, which frames are held out |
+| `camera_threshold_percentile`, `camera_threshold_slack`, `camera_patch_bank_size` | how camera limits are set, and how many patches are kept |
 | `min_mean_brightness` | images darker than this (0-255) are reported as errors, such as dataset mask files |
 | `robustness_sample`, `[[perturbations]]` | images per class and the photo changes used by `robustness` |
 
 ## Several products
 Each product has its own model; one ResNet is shared. Train a product by pointing a copy of `config.toml` at its `train_dir`, `val_dir`, `test_dir` and at `good_vectors_path` / `patch_bank_path` inside `models/products/<name>/`, then run `build` with `--config`. The server loads every trained folder in `products_dir`, detects the product from the photo and answers "unknown product" when a photo is more than `unknown_ratio` times the closest product's limit.
+
+## Camera check (phone or webcam)
+Teach any object by filming it, then show it a scratch or a sticker. Open the **Camera** page, start the camera, record the good object, and press *Start inspecting*. Browsers allow the camera only on `localhost`, so for an Android phone connected by USB:
+
+```bash
+adb reverse tcp:8080 tcp:8080      # the phone's localhost:8080 now reaches the PC
+```
+
+Open `http://localhost:8080/#/camera` on the phone, and on the PC press *Watch other device* to see its view and verdicts live. Use the same background and light for teaching and inspecting. Very thin scratches may be missed: each frame is checked at 224 x 224.
 
 ## The web page
 Open http://127.0.0.1:8080. Five pages, in a soft white and green style with falling leaves:
