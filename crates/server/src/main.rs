@@ -4,8 +4,8 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use axum::extract::{DefaultBodyLimit, Multipart, State};
-use axum::http::StatusCode;
-use axum::response::Html;
+use axum::http::{header, StatusCode};
+use axum::response::{Html, IntoResponse};
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use config::Config;
@@ -14,6 +14,8 @@ use image::DynamicImage;
 use serde::{Deserialize, Serialize};
 
 const INDEX_HTML: &str = include_str!("../../../web/index.html");
+const STYLE_CSS: &str = include_str!("../../../web/style.css");
+const APP_JS: &str = include_str!("../../../web/app.js");
 const DECISIONS: [&str; 3] = ["ok", "reject", "fix"];
 
 #[derive(Debug, Serialize, Deserialize, PartialEq)]
@@ -130,6 +132,14 @@ async fn index() -> Html<&'static str> {
     Html(INDEX_HTML)
 }
 
+async fn style() -> impl IntoResponse {
+    ([(header::CONTENT_TYPE, "text/css")], STYLE_CSS)
+}
+
+async fn script() -> impl IntoResponse {
+    ([(header::CONTENT_TYPE, "text/javascript")], APP_JS)
+}
+
 async fn read_image_field(mut multipart: Multipart) -> Result<(String, Vec<u8>), ApiError> {
     while let Some(field) = multipart
         .next_field()
@@ -235,6 +245,8 @@ async fn decision(
 fn app(state: Shared, max_upload_bytes: usize) -> Router {
     Router::new()
         .route("/", get(index))
+        .route("/style.css", get(style))
+        .route("/app.js", get(script))
         .route("/predict", post(predict))
         .route("/decision", post(decision))
         .layer(DefaultBodyLimit::max(max_upload_bytes))
@@ -383,6 +395,25 @@ mod tests {
         assert!(response.contains("Upload received: test.png"));
         assert!(response.contains("Image decoded: 16x16 px"));
         assert!(response.contains("stub step"));
+    }
+
+    #[tokio::test]
+    async fn serves_page_style_and_script() {
+        let addr = start(temp_path("d")).await;
+        for (path, marker) in [
+            ("/", "style.css"),
+            ("/style.css", "--green"),
+            ("/app.js", "/predict"),
+        ] {
+            let mut stream = TcpStream::connect(addr).await.expect("connect");
+            let request =
+                format!("GET {path} HTTP/1.1\r\nHost: {addr}\r\nConnection: close\r\n\r\n");
+            stream.write_all(request.as_bytes()).await.expect("send");
+            let mut response = String::new();
+            stream.read_to_string(&mut response).await.expect("read");
+            assert!(response.contains("200 OK"), "{path}");
+            assert!(response.contains(marker), "{path} should contain {marker}");
+        }
     }
 
     #[tokio::test]
