@@ -1,19 +1,23 @@
 //! One model per product, one shared feature extractor.
 use std::collections::BTreeMap;
 use std::ffi::OsStr;
-use std::sync::Arc;
+use std::path::Path;
+use std::sync::{Arc, Mutex, PoisonError, RwLock};
 
 use config::Config;
 use features::Extractor;
 use image::DynamicImage;
 
 use crate::predict::{ModelInfo, Trace};
+use crate::store::build_reference;
 use crate::{DetectorError, LogLine, Prediction, Predictor};
 
 pub struct Catalog {
     extractor: Arc<Extractor>,
-    products: BTreeMap<String, Predictor>,
-    unknown_ratio: f32,
+    /// Behind a lock so a camera product can be added while the server runs.
+    products: RwLock<BTreeMap<String, Arc<Predictor>>>,
+    learning: Mutex<()>,
+    cfg: Config,
 }
 
 pub enum Outcome {
@@ -37,24 +41,33 @@ impl Catalog {
         let mut products = BTreeMap::new();
         if cfg.good_vectors_path.is_file() && cfg.patch_bank_path.is_file() {
             let predictor = Predictor::load_shared(cfg, extractor.clone())?;
-            products.insert(cfg.default_product.clone(), predictor);
+            products.insert(cfg.default_product.clone(), Arc::new(predictor));
         }
         for (name, product_cfg) in product_configs(cfg)? {
             let predictor = Predictor::load_shared(&product_cfg, extractor.clone())?;
-            products.insert(name, predictor);
+            products.insert(name, Arc::new(predictor));
         }
         if products.is_empty() {
             return Err(DetectorError::NoProducts(cfg.products_dir.clone()));
         }
         Ok(Self {
             extractor,
-            products,
-            unknown_ratio: cfg.unknown_ratio,
+            products: RwLock::new(products),
+            learning: Mutex::new(()),
+            cfg: cfg.clone(),
         })
     }
 
-    pub fn products(&self) -> Vec<(String, ModelInfo)> {
+    fn loaded(&self) -> BTreeMap<String, Arc<Predictor>> {
+        // A poisoned lock still holds a complete map, so it is safe to read.
         self.products
+            .read()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone()
+    }
+
+    pub fn products(&self) -> Vec<(String, ModelInfo)> {
+        self.loaded()
             .iter()
             .map(|(name, predictor)| (name.clone(), predictor.info()))
             .collect()
@@ -68,20 +81,20 @@ impl Catalog {
     ) -> Result<Outcome, DetectorError> {
         let mut trace = Trace::new();
         let features = self.extractor.extract_all(image)?;
+        let products = self.loaded();
         let (name, predictor) = match choice {
-            Some(wanted) => self
-                .products
+            Some(wanted) => products
                 .get_key_value(wanted)
                 .ok_or_else(|| DetectorError::UnknownProduct(wanted.to_string()))?,
-            None => self.closest(&features.global)?,
+            None => closest(&products, &features.global)?,
         };
         if choice.is_none() {
             let score = predictor.distance(&features.global)?;
             let threshold = predictor.info().global_threshold;
-            if is_foreign(score, threshold, self.unknown_ratio) {
+            if is_foreign(score, threshold, self.cfg.unknown_ratio) {
                 trace.add(format!(
                     "Product check: closest is {name}, but {score:.2} is more than {} x its limit {threshold:.2} -> unknown product, not judged",
-                    self.unknown_ratio
+                    self.cfg.unknown_ratio
                 ));
                 return Ok(Outcome::Unknown {
                     closest: name.clone(),
@@ -92,7 +105,7 @@ impl Catalog {
             }
             trace.add(format!(
                 "Product detected: {name} (closest of {})",
-                self.products.len()
+                products.len()
             ));
         }
         let prediction = predictor.judge(&features, false, trace)?;
@@ -102,18 +115,70 @@ impl Catalog {
         })
     }
 
-    // The product whose good photos lie nearest to this one.
-    fn closest(&self, vector: &[f32]) -> Result<(&String, &Predictor), DetectorError> {
-        let mut best: Option<(f32, &String, &Predictor)> = None;
-        for (name, predictor) in &self.products {
-            let distance = predictor.distance(vector)?;
-            if best.is_none_or(|(d, _, _)| distance < d) {
-                best = Some((distance, name, predictor));
-            }
+    /// Learns a product from camera frames in `frames_dir` (`train/good`, `val/good`),
+    /// saves it under `products_dir/name` and makes it usable at once.
+    pub fn learn(&self, name: &str, frames_dir: &Path) -> Result<ModelInfo, DetectorError> {
+        let _one_at_a_time = self.learning.try_lock().map_err(|_| DetectorError::Busy)?;
+        if self
+            .loaded()
+            .get(name)
+            .is_some_and(|existing| !existing.info().camera)
+        {
+            return Err(DetectorError::NameTaken(name.to_string()));
         }
-        best.map(|(_, name, predictor)| (name, predictor))
-            .ok_or(DetectorError::EmptyReference)
+        let product = camera_config(&self.cfg, name, frames_dir)?;
+        let (mut reference, bank) = build_reference(&product, &self.extractor)?;
+        reference.threshold *= self.cfg.camera_threshold_slack;
+        reference.patch_threshold *= self.cfg.camera_threshold_slack;
+        reference.patch_decides = true;
+        // The bank is written first: a product counts as trained only once both files exist.
+        bank.save(&product.patch_bank_path)?;
+        reference.save(&product.good_vectors_path)?;
+        let predictor = Arc::new(Predictor::load_shared(&product, self.extractor.clone())?);
+        let info = predictor.info();
+        self.products
+            .write()
+            .unwrap_or_else(PoisonError::into_inner)
+            .insert(name.to_string(), predictor);
+        Ok(info)
     }
+}
+
+// The product whose good photos lie nearest to this one.
+fn closest<'a>(
+    products: &'a BTreeMap<String, Arc<Predictor>>,
+    vector: &[f32],
+) -> Result<(&'a String, &'a Arc<Predictor>), DetectorError> {
+    let mut best: Option<(f32, &String, &Arc<Predictor>)> = None;
+    for (name, predictor) in products {
+        let distance = predictor.distance(vector)?;
+        if best.is_none_or(|(d, _, _)| distance < d) {
+            best = Some((distance, name, predictor));
+        }
+    }
+    best.map(|(_, name, predictor)| (name, predictor))
+        .ok_or(DetectorError::EmptyReference)
+}
+
+fn camera_config(cfg: &Config, name: &str, frames_dir: &Path) -> Result<Config, DetectorError> {
+    let dir = cfg.products_dir.join(name);
+    std::fs::create_dir_all(&dir).map_err(|source| DetectorError::Io {
+        path: dir.clone(),
+        source,
+    })?;
+    let mut product = cfg.clone();
+    product.train_dir = frames_dir.join("train/good");
+    product.val_dir = frames_dir.join("val/good");
+    product.good_vectors_path = dir.join(file_name(&cfg.good_vectors_path)?);
+    product.patch_bank_path = dir.join(file_name(&cfg.patch_bank_path)?);
+    product.threshold_percentile = cfg.camera_threshold_percentile;
+    product.patch_bank_size = cfg.camera_patch_bank_size;
+    Ok(product)
+}
+
+fn file_name(path: &Path) -> Result<&OsStr, DetectorError> {
+    path.file_name()
+        .ok_or_else(|| DetectorError::NoProducts(path.to_path_buf()))
 }
 
 fn is_foreign(score: f32, threshold: f32, ratio: f32) -> bool {

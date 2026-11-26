@@ -19,6 +19,10 @@ pub struct Reference {
     pub val_scores: Vec<f32>,
     pub patch_threshold: f32,
     pub patch_val_scores: Vec<f32>,
+    /// True for camera-taught products: a scratch or sticker barely moves the whole-photo
+    /// score, so the patch check alone decides.
+    #[serde(default)]
+    pub patch_decides: bool,
 }
 
 impl Reference {
@@ -71,6 +75,7 @@ pub fn build_reference(
         val_scores,
         patch_threshold,
         patch_val_scores,
+        patch_decides: false,
     };
     Ok((reference, bank))
 }
@@ -130,6 +135,7 @@ mod tests {
             val_scores: vec![0.1, 0.2],
             patch_threshold: 0.7,
             patch_val_scores: vec![0.3],
+            patch_decides: true,
         };
         let path = std::env::temp_dir().join(format!("px_ref_{}.json", std::process::id()));
         reference.save(&path).expect("save");

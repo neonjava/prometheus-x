@@ -116,14 +116,14 @@ function mix(t) {
 }
 
 // One pixel per patch; scaling it up with smoothing turns the blocks into soft blobs.
-function heatImage(finding, limit) {
+function heatImage(finding, limit, start = HEAT_START) {
   const [rows, cols] = finding.grid;
   const small = document.createElement('canvas');
   small.width = cols;
   small.height = rows;
   const ctx = small.getContext('2d');
   const pixels = ctx.createImageData(cols, rows);
-  const low = limit * HEAT_START;
+  const low = limit * start;
   const high = Math.max(limit * HEAT_FULL, ...finding.map);
   finding.map.forEach((value, i) => {
     if (value <= low) return;
@@ -223,4 +223,34 @@ export function mountHeatView(host, src, result) {
     paint();
   });
   return () => observer.disconnect();
+}
+
+/** Spots of at least `minCells` patches, ignoring `edge` patches around the frame, where
+ *  background objects and half-visible cable ends appear. */
+export function liveSpots(result, minCells, edge) {
+  if (!result.patch) return [];
+  const { grid, map } = result.finding;
+  const [rows, cols] = grid;
+  const inner = map.map((value, i) => {
+    const x = i % cols;
+    const y = Math.floor(i / cols);
+    return x >= edge && x < cols - edge && y >= edge && y < rows - edge ? value : 0;
+  });
+  return findSpots({ grid, map: inner }, result.patch.threshold).filter((s) => s.cells >= minCells);
+}
+
+/** Paints heat and boxes for `spots` only, over the live camera view. */
+export function drawSpotHeat(canvas, result, spots) {
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  if (!spots.length) return;
+  const { finding } = result;
+  const [rows, cols] = finding.grid;
+  const inside = (i) => spots.some((s) => i % cols >= s.x0 && i % cols < s.x1
+    && Math.floor(i / cols) >= s.y0 && Math.floor(i / cols) < s.y1);
+  const only = { grid: finding.grid, map: finding.map.map((v, i) => (inside(i) ? v : 0)) };
+  ctx.globalAlpha = prefs.strength / 100;
+  ctx.drawImage(heatImage(only, result.patch.threshold, 1), 0, 0, canvas.width, canvas.height);
+  ctx.globalAlpha = 1;
+  drawSpots(ctx, spots, canvas.width / cols, canvas.height / rows);
 }

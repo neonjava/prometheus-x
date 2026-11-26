@@ -47,21 +47,36 @@ Every path, size and threshold is in [`config.toml`](config.toml). Use `--config
 | `server_bind`, `max_upload_bytes`, `decisions_path`, `web_dir` | server address, single-image upload limit, where review decisions are saved, folder with the page files |
 | `batches_dir`, `max_batch_bytes`, `max_unpacked_bytes`, `max_batch_files`, `batch_workers`, `thumb_size` | where batches are kept, upload and zip-unpack limits, file cap, images checked at once, thumbnail size |
 | `products_dir`, `default_product`, `unknown_ratio` | trained products folder, name of the main model, how far a photo may be before it is unknown |
+| `captures_dir`, `camera_min_frames`, `camera_val_every` | where camera frames go, the fewest frames needed, which frames are held out |
+| `camera_threshold_percentile`, `camera_threshold_slack`, `camera_patch_bank_size` | how camera limits are set, and how many patches are kept |
+| `camera_learn_frames`, `camera_min_spot_cells`, `camera_edge_cells` | frames recorded to learn an object, smallest live anomaly, border ignored in the live view |
 | `min_mean_brightness` | images darker than this (0-255) are reported as errors, such as dataset mask files |
 | `robustness_sample`, `[[perturbations]]` | images per class and the photo changes used by `robustness` |
 
 ## Several products
 Each product has its own model; one ResNet is shared. Train a product by pointing a copy of `config.toml` at its `train_dir`, `val_dir`, `test_dir` and at `good_vectors_path` / `patch_bank_path` inside `models/products/<name>/`, then run `build` with `--config`. The server loads every trained folder in `products_dir`, detects the product from the photo and answers "unknown product" when a photo is more than `unknown_ratio` times the closest product's limit.
 
+## Camera check (phone or webcam)
+Teach any object by filming it, then show it a scratch or a sticker. Open the **Camera** page, start the camera, record the good object, and press *Start inspecting*. Browsers allow the camera only on `localhost`, so for an Android phone connected by USB:
+
+```bash
+adb reverse tcp:8080 tcp:8080      # the phone's localhost:8080 now reaches the PC
+```
+
+Open `http://localhost:8080/#/camera` on the phone, and on the PC press *Watch other device* to see its view and verdicts live. Use the same background and light for teaching and inspecting. Very thin scratches may be missed: each frame is checked at 224 x 224.
+
 ## The web page
-Open http://127.0.0.1:8080. Five pages, in a soft white and green style with falling leaves:
+Open http://127.0.0.1:8080. Six pages, in a soft white and green style with falling leaves:
 - **Overview**: figures from the loaded model and links to everything.
 - **Check image**: drop one photo and watch each step in a console, with the heatmap.
 - **Batch**: drop a zip or many photos. A live progress bar, summary tiles (OK, needs review, defect, shift warnings, errors), a red / amber / green thumbnail grid you can filter and sort, a detail drawer with the heatmap, bulk OK / Reject / Fix, and CSV export. Results are saved under `batches_dir`, so a refresh or restart loses nothing. Old batches can be deleted from the page. Every result shows why it was flagged: how far past the limit each check was, a smooth heatmap, and numbered close-ups of the odd spots.
+- **Camera**: teach an object by filming it, then inspect it live (see above).
 - **Review**: every decision people saved.
 - **How it works**: the diagram and the steps.
 
 ## How well it works
+**Known limitation:** lighting changes are not handled well yet. On darker or brighter copies of good photos, almost all become Uncertain and the shift warning often stays silent. Re-run `prometheus-x robustness` to see it.
+
 VisA `pcb1`: 704 good for training, 150 good for validation, then 150 good and 100 defect for testing. Threshold at the 80th percentile.
 
 | Model | Image AUROC | False-positive rate |

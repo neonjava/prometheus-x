@@ -57,6 +57,8 @@ pub struct ModelInfo {
     pub patch_rows: usize,
     pub global_threshold: f32,
     pub patch_threshold: f32,
+    /// Taught from the camera.
+    pub camera: bool,
 }
 
 /// Loaded models: kept in memory between predictions.
@@ -124,6 +126,7 @@ impl Predictor {
             patch_rows: self.bank.len(),
             global_threshold: self.reference.threshold,
             patch_threshold: self.reference.patch_threshold,
+            camera: self.reference.patch_decides,
         }
     }
 
@@ -168,8 +171,9 @@ impl Predictor {
             global_score(&features.global, &self.reference.vectors)?,
             self.reference.threshold,
         );
+        let patch_decides = self.reference.patch_decides;
         let passed_step1 = global.vote == Verdict::Good;
-        if passed_step1 && !always_step2 {
+        if passed_step1 && !always_step2 && !patch_decides {
             trace.add(format!(
                 "Step 1 quick check: score {:.2} vs threshold {:.2} -> looks normal. PASS, Step 2 skipped",
                 global.score, global.threshold
@@ -202,13 +206,19 @@ impl Predictor {
             patch.score, patch.threshold, patch.vote
         ));
 
-        let verdict = if passed_step1 {
+        let verdict = if patch_decides {
+            patch.vote
+        } else if passed_step1 {
             Verdict::Good
         } else {
             fuse(global.vote, patch.vote)
         };
         let finding = self.finding(patch_score, &patch);
-        trace.add(decision_message(verdict, &finding));
+        trace.add(if patch_decides {
+            format!("Camera product: the patch check decides -> {verdict}")
+        } else {
+            decision_message(verdict, &finding)
+        });
         Ok(Prediction {
             verdict,
             needs_review: verdict == Verdict::Uncertain,

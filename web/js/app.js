@@ -1,6 +1,7 @@
 import { getStatus } from './api.js';
 import { blockStrayDrops, esc, formatNumber, icon, TAB_LABELS } from './ui.js';
 import { mountBatch } from './pages/batch.js';
+import { mountCamera } from './pages/camera.js';
 import { mountCheck } from './pages/check.js';
 import { mountHome } from './pages/home.js';
 import { mountHow } from './pages/how.js';
@@ -10,6 +11,7 @@ const ROUTES = {
   '/': mountHome,
   '/check': mountCheck,
   '/batch': mountBatch,
+  '/camera': mountCamera,
   '/review': mountReview,
   '/how': mountHow,
 };

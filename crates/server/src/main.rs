@@ -1,4 +1,5 @@
 mod batch;
+mod camera;
 mod responses;
 mod state;
 
@@ -18,7 +19,9 @@ use config::Config;
 use detector::Catalog;
 use responses::{LogResponse, PredictionResponse};
 use serde::{Deserialize, Serialize};
-use state::{bad_request, internal, product_choice, ApiError, AppState, Shared};
+use state::{
+    bad_request, internal, product_choice, ApiError, AppState, CameraPage, CameraSettings, Shared,
+};
 use tower_http::services::ServeDir;
 
 const DECISIONS: [&str; 3] = ["ok", "reject", "fix"];
@@ -30,11 +33,14 @@ struct CheckRequest {
     name: String,
     bytes: Vec<u8>,
     product: Option<String>,
+    /// Set by camera mode so watching screens receive the verdict.
+    live: bool,
 }
 
 async fn read_check_request(mut multipart: Multipart) -> Result<CheckRequest, ApiError> {
     let mut image = None;
     let mut product = None;
+    let mut live = false;
     while let Some(field) = multipart
         .next_field()
         .await
@@ -53,6 +59,7 @@ async fn read_check_request(mut multipart: Multipart) -> Result<CheckRequest, Ap
             Some("product") => {
                 product = product_choice(field.text().await.map_err(bad_request)?);
             }
+            Some("live") => live = true,
             _ => {}
         }
     }
@@ -62,6 +69,7 @@ async fn read_check_request(mut multipart: Multipart) -> Result<CheckRequest, Ap
         name,
         bytes,
         product,
+        live,
     })
 }
 
@@ -74,6 +82,7 @@ async fn predict(
         name,
         bytes,
         product,
+        live,
     } = read_check_request(multipart).await?;
     let mut log = vec![LogResponse {
         message: format!("Upload received: {name} ({} KB)", bytes.len() / 1024),
@@ -93,14 +102,18 @@ async fn predict(
     }
 
     // Inference is CPU-heavy, keep it off the async threads.
+    let worker = state.clone();
     let prediction =
-        tokio::task::spawn_blocking(move || state.model.predict(&image, product.as_deref()))
+        tokio::task::spawn_blocking(move || worker.model.predict(&image, product.as_deref()))
             .await
             .map_err(internal)?
             .map_err(internal)?;
     let mut response = PredictionResponse::from(prediction);
     log.append(&mut response.log);
     response.log = log;
+    if live {
+        camera::publish_result(&state, &response);
+    }
     Ok(Json(response))
 }
 
@@ -192,6 +205,7 @@ async fn pending(State(state): State<Shared>) -> Json<Vec<batch::PendingItem>> {
 struct ProductStatus {
     name: String,
     good_vectors: usize,
+    camera: bool,
 }
 
 #[derive(Serialize)]
@@ -200,6 +214,7 @@ struct StatusResponse {
     good_vectors: usize,
     patch_rows: usize,
     products: Vec<ProductStatus>,
+    camera: CameraPage,
     reviews: usize,
     batches: usize,
     waiting_for_review: usize,
@@ -217,8 +232,10 @@ async fn status(State(state): State<Shared>) -> Json<StatusResponse> {
             .map(|(name, i)| ProductStatus {
                 name,
                 good_vectors: i.good_vectors,
+                camera: i.camera,
             })
             .collect(),
+        camera: state.camera.page,
         reviews: read_decisions(&state.decisions_path).len(),
         batches: state.batches.count(),
         waiting_for_review,
@@ -242,6 +259,10 @@ fn app(state: Shared, web_dir: &Path, max_upload_bytes: usize, max_batch_bytes: 
         .route("/decisions", get(decisions))
         .route("/review/pending", get(pending))
         .route("/status", get(status))
+        .route("/products/{name}/learn", post(camera::learn))
+        .route("/live", get(camera::live_status))
+        .route("/live/frame", post(camera::push_frame))
+        .route("/live/frame.jpg", get(camera::live_frame))
         .route("/batches", get(batch::list_endpoint))
         .route("/batch/{id}", get(batch::status).delete(batch::remove))
         .route("/batch/{id}/item/{name}", get(batch::item))
@@ -288,6 +309,17 @@ async fn main() -> anyhow::Result<()> {
         decisions_path: cfg.decisions_path.clone(),
         batches: Batches::new(batch_settings(&cfg)),
         min_mean_brightness: cfg.min_mean_brightness,
+        camera: CameraSettings {
+            dir: cfg.captures_dir.clone(),
+            min_frames: cfg.camera_min_frames,
+            val_every: cfg.camera_val_every,
+            page: CameraPage {
+                learn_frames: cfg.camera_learn_frames,
+                min_spot_cells: cfg.camera_min_spot_cells,
+                edge_cells: cfg.camera_edge_cells,
+            },
+        },
+        live: camera::Live::default(),
     });
     let listener = tokio::net::TcpListener::bind(&cfg.server_bind)
         .await
@@ -306,7 +338,7 @@ async fn main() -> anyhow::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::state::testing::StubModel;
+    use crate::state::testing::{camera_settings, StubModel};
     use image::{DynamicImage, ImageFormat, Rgb, RgbImage};
     use std::io::Cursor;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -336,6 +368,8 @@ mod tests {
         let state = Arc::new(AppState {
             model: Box::new(StubModel),
             min_mean_brightness: 1.0,
+            camera: camera_settings(&root.join("captures")),
+            live: Default::default(),
             decisions_path: root.join("decisions.jsonl"),
             batches,
         });
@@ -407,6 +441,47 @@ mod tests {
         assert!(response.contains("Upload received: test.png"));
         assert!(response.contains("Image decoded: 16x16 px"));
         assert!(response.contains("stub step"));
+    }
+
+    #[tokio::test]
+    async fn camera_learning_needs_enough_frames_and_a_free_name() {
+        let (addr, _) = start("g2").await;
+        let frame = multipart("image", "0.png", &png_bytes());
+        let few = send(addr, "POST", "/products/charger/learn", &form(), &frame).await;
+        assert!(few.contains("400") && few.contains("at least 4"), "{few}");
+
+        let mut body = Vec::new();
+        for n in 0..4 {
+            let one = multipart("image", &format!("{n}.png"), &png_bytes());
+            // Join the parts: drop each closing boundary except the last.
+            let end = one.len() - format!("--{BOUNDARY}--\r\n").len();
+            body.extend_from_slice(&one[..end]);
+        }
+        body.extend_from_slice(format!("--{BOUNDARY}--\r\n").as_bytes());
+        let learned = send(addr, "POST", "/products/charger/learn", &form(), &body).await;
+        assert!(learned.contains("\"good_frames\":2"), "{learned}");
+        let taken = send(addr, "POST", "/products/stub/learn", &form(), &body).await;
+        assert!(taken.contains("already a dataset product"), "{taken}");
+    }
+
+    #[tokio::test]
+    async fn live_view_shows_the_latest_frame_and_verdict() {
+        let (addr, _) = start("g3").await;
+        let none = send(addr, "GET", "/live/frame.jpg", "image/jpeg", b"").await;
+        assert!(none.contains("404"));
+        let frame = multipart("image", "f.jpg", &png_bytes());
+        let pushed = send(addr, "POST", "/live/frame", &form(), &frame).await;
+        assert!(pushed.contains("204"), "{pushed}");
+
+        let mut body = multipart("image", "f.png", &png_bytes());
+        let end = body.len() - format!("--{BOUNDARY}--\r\n").len();
+        body.truncate(end);
+        body.extend_from_slice(&multipart("live", "x", b"1"));
+        send(addr, "POST", "/predict", &form(), &body).await;
+        let status = send(addr, "GET", "/live", "application/json", b"").await;
+        assert!(status.contains("\"frame_seq\":1"), "{status}");
+        assert!(status.contains("\"result_seq\":1"), "{status}");
+        assert!(status.contains("\"verdict\":\"Defect\""));
     }
 
     #[tokio::test]

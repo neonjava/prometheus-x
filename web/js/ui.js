@@ -5,6 +5,7 @@ const ICONS = {
   scan: '<path d="M4 8V5a1 1 0 0 1 1-1h3M16 4h3a1 1 0 0 1 1 1v3M20 16v3a1 1 0 0 1-1 1h-3M8 20H5a1 1 0 0 1-1-1v-3"/><circle cx="12" cy="12" r="3"/>',
   grid: '<rect x="4" y="4" width="7" height="7" rx="1.5"/><rect x="13" y="4" width="7" height="7" rx="1.5"/><rect x="4" y="13" width="7" height="7" rx="1.5"/><rect x="13" y="13" width="7" height="7" rx="1.5"/>',
   review: '<circle cx="12" cy="12" r="9"/><path d="M8 12.5l2.7 2.7L16 9.5"/>',
+  camera: '<path d="M4 8h3l1.5-2.5h7L17 8h3v11H4z"/><circle cx="12" cy="13" r="3.5"/>',
   info: '<circle cx="12" cy="12" r="9"/><path d="M12 11v5"/><circle cx="12" cy="7.8" r=".6"/>',
   chevron: '<path d="M9 6l6 6-6 6"/>',
   left: '<path d="M15 6l-6 6 6 6"/>',
@@ -19,6 +20,7 @@ export const TAB_LABELS = {
   '/': ['home', 'Overview'],
   '/check': ['scan', 'Check image'],
   '/batch': ['grid', 'Batch'],
+  '/camera': ['camera', 'Camera'],
   '/review': ['review', 'Review'],
   '/how': ['info', 'How it works'],
 };

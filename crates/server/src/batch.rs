@@ -799,7 +799,7 @@ mod tests {
     use image::{Rgb, RgbImage};
 
     use super::*;
-    use crate::state::testing::StubModel;
+    use crate::state::testing::{camera_settings, StubModel};
     use crate::state::AppState;
 
     fn temp_dir(name: &str) -> PathBuf {
@@ -916,6 +916,8 @@ mod tests {
             decisions_path: dir.join("d.jsonl"),
             batches,
             min_mean_brightness: 1.0,
+            camera: camera_settings(&dir),
+            live: Default::default(),
         });
         let batch = dir.join("b1");
         for sub in [IMAGES_DIR, THUMBS_DIR] {
@@ -1044,6 +1046,8 @@ mod tests {
             decisions_path: dir.join("d.jsonl"),
             batches,
             min_mean_brightness: 1.0,
+            camera: camera_settings(&dir),
+            live: Default::default(),
         });
         let refused = remove(State(state), UrlPath("1-0".into())).await;
         assert_eq!(refused.map_err(|e| e.0), Err(StatusCode::CONFLICT));

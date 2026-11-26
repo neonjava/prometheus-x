@@ -41,6 +41,10 @@ pub enum DetectorError {
     NoProducts(PathBuf),
     #[error("unknown product '{0}'")]
     UnknownProduct(String),
+    #[error("'{0}' is already a dataset product; choose another name")]
+    NameTaken(String),
+    #[error("another product is being learned right now")]
+    Busy,
     #[error(transparent)]
     Candle(#[from] candle_core::Error),
     #[error(transparent)]
