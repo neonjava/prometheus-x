@@ -203,6 +203,9 @@ mod tests {
             camera_threshold_percentile: 100.0,
             camera_threshold_slack: 1.0,
             camera_patch_bank_size: 1,
+            camera_learn_frames: 2,
+            camera_min_spot_cells: 1,
+            camera_edge_cells: 0,
             robustness_sample: 1,
             perturbations: Vec::new(),
         }

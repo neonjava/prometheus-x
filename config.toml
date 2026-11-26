@@ -38,6 +38,11 @@ camera_val_every = 5
 camera_threshold_percentile = 100.0
 camera_threshold_slack = 1.2
 camera_patch_bank_size = 15000
+# The camera page records this many frames to learn an object.
+camera_learn_frames = 90
+# Live anomaly: a spot of at least this many patches, ignoring this many patches around the frame.
+camera_min_spot_cells = 4
+camera_edge_cells = 1
 robustness_sample = 50
 
 # Photo changes used by `prometheus-x robustness`.

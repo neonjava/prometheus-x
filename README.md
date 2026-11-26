@@ -49,6 +49,7 @@ Every path, size and threshold is in [`config.toml`](config.toml). Use `--config
 | `products_dir`, `default_product`, `unknown_ratio` | trained products folder, name of the main model, how far a photo may be before it is unknown |
 | `captures_dir`, `camera_min_frames`, `camera_val_every` | where camera frames go, the fewest frames needed, which frames are held out |
 | `camera_threshold_percentile`, `camera_threshold_slack`, `camera_patch_bank_size` | how camera limits are set, and how many patches are kept |
+| `camera_learn_frames`, `camera_min_spot_cells`, `camera_edge_cells` | frames recorded to learn an object, smallest live anomaly, border ignored in the live view |
 | `min_mean_brightness` | images darker than this (0-255) are reported as errors, such as dataset mask files |
 | `robustness_sample`, `[[perturbations]]` | images per class and the photo changes used by `robustness` |
 

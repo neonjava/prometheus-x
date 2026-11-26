@@ -4,6 +4,7 @@ use std::sync::Arc;
 use axum::http::StatusCode;
 use detector::{Catalog, ModelInfo, Outcome};
 use image::DynamicImage;
+use serde::Serialize;
 
 use crate::batch::Batches;
 use crate::camera::Live;
@@ -49,6 +50,15 @@ pub struct CameraSettings {
     pub dir: PathBuf,
     pub min_frames: usize,
     pub val_every: usize,
+    pub page: CameraPage,
+}
+
+/// The settings the camera page needs, sent with the status.
+#[derive(Debug, Clone, Copy, Serialize)]
+pub struct CameraPage {
+    pub learn_frames: usize,
+    pub min_spot_cells: usize,
+    pub edge_cells: usize,
 }
 
 impl AppState {
@@ -88,6 +98,11 @@ pub mod testing {
             dir: dir.to_path_buf(),
             min_frames: 4,
             val_every: 2,
+            page: CameraPage {
+                learn_frames: 4,
+                min_spot_cells: 1,
+                edge_cells: 0,
+            },
         }
     }
 

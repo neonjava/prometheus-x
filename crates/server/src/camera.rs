@@ -12,6 +12,9 @@ use serde::Serialize;
 use crate::responses::PredictionResponse;
 use crate::state::{bad_request, internal, not_found, ApiError, Shared};
 
+/// Longest product name accepted; it becomes a folder name.
+const MAX_NAME_LEN: usize = 40;
+
 /// The newest camera frame and the newest verdict, so another screen can follow along.
 #[derive(Default)]
 pub struct Live(Mutex<LiveData>);
@@ -90,7 +93,7 @@ pub struct Learned {
 /// The name becomes a folder, so only simple characters are allowed.
 fn valid_product_name(name: &str) -> bool {
     !name.is_empty()
-        && name.len() <= 40
+        && name.len() <= MAX_NAME_LEN
         && name
             .chars()
             .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-' || c == '_')
@@ -131,9 +134,9 @@ pub async fn learn(
     multipart: Multipart,
 ) -> Result<Json<Learned>, ApiError> {
     if !valid_product_name(&name) {
-        return Err(bad_request(
-            "product name may use a-z, 0-9, - and _ (up to 40 characters)",
-        ));
+        return Err(bad_request(format!(
+            "product name may use a-z, 0-9, - and _ (up to {MAX_NAME_LEN} characters)"
+        )));
     }
     let frames = read_frames(multipart).await?;
     if frames.len() < state.camera.min_frames {

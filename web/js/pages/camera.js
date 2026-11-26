@@ -6,7 +6,6 @@ import { esc, toast } from '../ui.js';
 const FRAME_PX = 640;
 const JPEG_QUALITY = 0.85;
 const GUIDE_SHARE = 0.86;
-const LEARN_FRAMES = 90;
 const LEARN_EVERY_MS = 250;
 const PREVIEW_EVERY_MS = 200;
 const WATCH_EVERY_MS = 200;
@@ -14,9 +13,6 @@ const STALE_MS = 3000;
 // A single odd frame (motion blur, a hand) should not raise the alarm.
 const VOTES = 3;
 const VOTES_NEEDED = 2;
-// An added object covers several patches; fewer are glare or blur.
-const MIN_SPOT_CELLS = 4;
-const EDGE_CELLS = 1;
 
 const LABELS = { Good: 'Looks normal', Defect: 'Anomaly found', Uncertain: 'Not sure' };
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -49,8 +45,8 @@ export function mountCamera(root) {
         <div class="card">
           <div class="section-label">1. Teach a good object</div>
           <p class="small muted">Remove anything extra from the object, then fill the square with it on a plain background. While it records, slowly move, turn and tilt it into every position you will show later. Keep the same background and light afterwards.</p>
-          <input class="field" id="name" value="charger" aria-label="Object name" style="width:100%;margin:.7rem 0">
-          <button class="btn primary block" id="learn" disabled>Record and learn (${Math.round((LEARN_FRAMES * LEARN_EVERY_MS) / 1000)} s)</button>
+          <input class="field" id="name" placeholder="Object name, for example charger" aria-label="Object name" style="width:100%;margin:.7rem 0">
+          <button class="btn primary block" id="learn" disabled>Record and learn</button>
           <div class="progress" id="progress" hidden><div class="bar"><i id="bar"></i></div><div class="meta"><span id="progress-text"></span></div></div>
         </div>
         <div class="card">
@@ -67,7 +63,8 @@ export function mountCamera(root) {
   const grabber = document.createElement('canvas');
   grabber.width = FRAME_PX;
   grabber.height = FRAME_PX;
-  const state = { stream: null, watching: false, inspecting: false, learning: false, gone: false, recent: [] };
+  const state = { stream: null, watching: false, inspecting: false, learning: false, gone: false, recent: [],
+    settings: null };
 
   function showError(message) {
     $('#error').textContent = message;
@@ -75,7 +72,12 @@ export function mountCamera(root) {
   }
 
   async function loadProducts(selected) {
-    const products = (await getStatus()).products.filter((p) => p.camera);
+    const status = await getStatus();
+    state.settings = status.camera;
+    const seconds = Math.round((state.settings.learn_frames * LEARN_EVERY_MS) / 1000);
+    $('#learn').textContent = `Record and learn (${seconds} s)`;
+    $('#learn').disabled = !state.stream || state.learning;
+    const products = status.products.filter((p) => p.camera);
     $('#product').innerHTML = products.length
       ? products.map((p) => `<option value="${esc(p.name)}">${esc(p.name)}</option>`).join('')
       : '<option value="">Nothing taught yet</option>';
@@ -101,7 +103,8 @@ export function mountCamera(root) {
   }
 
   function showVerdict(result) {
-    const spots = liveSpots(result, MIN_SPOT_CELLS, EDGE_CELLS);
+    if (!state.settings) return;
+    const spots = liveSpots(result, state.settings.min_spot_cells, state.settings.edge_cells);
     // Live, the spots decide: there is no person to review each frame.
     const frame = spots.length ? 'Defect' : 'Good';
     state.recent = [...state.recent, frame].slice(-VOTES);
@@ -157,13 +160,17 @@ export function mountCamera(root) {
     $('#note').hidden = true;
     $('#start').textContent = 'Camera on';
     $('#start').disabled = true;
-    $('#learn').disabled = false;
-    loadProducts();
+    loadProducts().catch((err) => showError(err.message));
     previewLoop();
   }
 
   async function learn() {
     const name = $('#name').value.trim().toLowerCase().replace(/\s+/g, '-');
+    if (!name) {
+      showError('Type a name for the object first.');
+      return;
+    }
+    showError('');
     state.inspecting = false;
     state.learning = true;
     clearVerdict();
@@ -172,10 +179,10 @@ export function mountCamera(root) {
     $('#progress').hidden = false;
     const frames = [];
     try {
-      while (frames.length < LEARN_FRAMES && !state.gone) {
+      while (frames.length < state.settings.learn_frames && !state.gone) {
         frames.push(await grab());
-        $('#bar').style.width = `${(100 * frames.length) / LEARN_FRAMES}%`;
-        $('#progress-text').textContent = `Recording ${frames.length} of ${LEARN_FRAMES}: move it slightly`;
+        $('#bar').style.width = `${(100 * frames.length) / state.settings.learn_frames}%`;
+        $('#progress-text').textContent = `Recording ${frames.length} of ${state.settings.learn_frames}: move it slightly`;
         await sleep(LEARN_EVERY_MS);
       }
       $('#progress-text').textContent = 'Learning… this takes about half a minute';

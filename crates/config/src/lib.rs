@@ -99,6 +99,12 @@ pub struct Config {
     pub camera_threshold_slack: f32,
     /// Patches kept for a camera product; fewer means faster live checks.
     pub camera_patch_bank_size: usize,
+    /// Frames the camera page records to learn an object.
+    pub camera_learn_frames: usize,
+    /// Fewest odd patches that count as a live anomaly; smaller spots are glare or blur.
+    pub camera_min_spot_cells: usize,
+    /// Patches ignored around the live frame, where background objects appear.
+    pub camera_edge_cells: usize,
     /// Images per class (good, defect) used by the robustness test.
     pub robustness_sample: usize,
     #[serde(default)]
@@ -168,6 +174,12 @@ impl Config {
                     .into(),
             ));
         }
+        if self.camera_learn_frames < self.camera_min_frames || self.camera_min_spot_cells == 0 {
+            return Err(ConfigError::Invalid(
+                "camera_learn_frames must be >= camera_min_frames and camera_min_spot_cells > 0"
+                    .into(),
+            ));
+        }
         if self.patch_bank_size == 0 {
             return Err(ConfigError::Invalid("patch_bank_size must be > 0".into()));
         }
@@ -225,6 +237,9 @@ camera_val_every = 5
 camera_threshold_percentile = 100.0
 camera_threshold_slack = 1.2
 camera_patch_bank_size = 100
+camera_learn_frames = 20
+camera_min_spot_cells = 1
+camera_edge_cells = 0
 robustness_sample = 5
 
 [[perturbations]]

@@ -19,7 +19,9 @@ use config::Config;
 use detector::Catalog;
 use responses::{LogResponse, PredictionResponse};
 use serde::{Deserialize, Serialize};
-use state::{bad_request, internal, product_choice, ApiError, AppState, CameraSettings, Shared};
+use state::{
+    bad_request, internal, product_choice, ApiError, AppState, CameraPage, CameraSettings, Shared,
+};
 use tower_http::services::ServeDir;
 
 const DECISIONS: [&str; 3] = ["ok", "reject", "fix"];
@@ -212,6 +214,7 @@ struct StatusResponse {
     good_vectors: usize,
     patch_rows: usize,
     products: Vec<ProductStatus>,
+    camera: CameraPage,
     reviews: usize,
     batches: usize,
     waiting_for_review: usize,
@@ -232,6 +235,7 @@ async fn status(State(state): State<Shared>) -> Json<StatusResponse> {
                 camera: i.camera,
             })
             .collect(),
+        camera: state.camera.page,
         reviews: read_decisions(&state.decisions_path).len(),
         batches: state.batches.count(),
         waiting_for_review,
@@ -309,6 +313,11 @@ async fn main() -> anyhow::Result<()> {
             dir: cfg.captures_dir.clone(),
             min_frames: cfg.camera_min_frames,
             val_every: cfg.camera_val_every,
+            page: CameraPage {
+                learn_frames: cfg.camera_learn_frames,
+                min_spot_cells: cfg.camera_min_spot_cells,
+                edge_cells: cfg.camera_edge_cells,
+            },
         },
         live: camera::Live::default(),
     });
