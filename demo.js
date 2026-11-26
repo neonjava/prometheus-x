@@ -4,11 +4,12 @@ const samples = fetch('demo-data/data.json').then((r) => r.json()).then((d) => d
 const label = (name) => (name.includes('-good-') ? 'good board' : 'damaged board');
 
 async function choose(input, names) {
-  const transfer = new DataTransfer();
-  for (const name of names) {
+  const files = await Promise.all(names.map(async (name) => {
     const blob = await (await fetch(`demo-data/images/${name}`)).blob();
-    transfer.items.add(new File([blob], name, { type: 'image/jpeg' }));
-  }
+    return new File([blob], name, { type: 'image/jpeg' });
+  }));
+  const transfer = new DataTransfer();
+  files.forEach((file) => transfer.items.add(file));
   input.files = transfer.files;
   input.dispatchEvent(new Event('change'));
 }
@@ -28,9 +29,19 @@ async function addSamples(zone) {
     : panel(`<p class="small muted">Try a sample photo, then press "Check image":</p><div class="demo-strip">${names
       .map((n) => `<button type="button" data-name="${n}" title="${label(n)}"><img loading="lazy" src="demo-data/thumbs/${n}" alt="Sample ${label(n)}"></button>`)
       .join('')}</div>`);
-  box.addEventListener('click', (e) => {
+  box.addEventListener('click', async (e) => {
     const button = e.target.closest('button');
-    if (button) choose(input, 'all' in button.dataset ? names : [button.dataset.name]);
+    if (!button) return;
+    const all = 'all' in button.dataset;
+    const text = button.textContent;
+    button.disabled = true;
+    if (all) button.textContent = 'Loading photos…';
+    try {
+      await choose(input, all ? names : [button.dataset.name]);
+    } finally {
+      button.disabled = false;
+      if (all) button.textContent = text;
+    }
   });
   // Below the check button, so the button stays in view.
   (zone.parentElement.querySelector('#go') ?? input).after(box);
