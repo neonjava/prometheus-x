@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Prometheus-X | Live Demo</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="demo.css">
+</head>
+<body>
+  <header class="island">
+    <a class="brand" href="#/" aria-label="Prometheus-X home">
+      <span class="brand-mark"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 21C3 10 10 3 21 3c0 11-7 18-18 18z"/></svg></span>
+      <b>Prometheus-X</b>
+    </a>
+    <nav class="tabs" id="tabs">
+      <span class="glide" id="glide"></span>
+      <a class="tab" href="#/" data-route="/"></a>
+      <a class="tab" href="#/check" data-route="/check"></a>
+      <a class="tab" href="#/batch" data-route="/batch"></a>
+      <a class="tab" href="#/camera" data-route="/camera"></a>
+      <a class="tab" href="#/review" data-route="/review"></a>
+      <a class="tab" href="#/how" data-route="/how"></a>
+    </nav>
+    <div class="status-pill" id="status-pill"><i class="status-dot"></i><span>Connecting&hellip;</span></div>
+  </header>
+
+  <div class="toasts" id="toasts" aria-live="polite"></div>
+  <p class="demo-bar"><b>Online demo.</b> Results were recorded from the real Rust app on sample PCB photos; no model runs in your browser and nothing is uploaded. <a href="https://github.com/neonjava/prometheus-x#set-it-up-for-your-industry">Set it up for your product</a><br><small>Sample photos: VisA dataset (CC BY 4.0), resized.</small></p>
+  <main id="view"></main>
+
+  <script src="leaves.js"></script>
+  <script type="module" src="js/app.js"></script>
+  <script type="module" src="demo.js"></script>
+</body>
+</html>

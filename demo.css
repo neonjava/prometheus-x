@@ -1,0 +1,10 @@
+/* Demo-only styles, on top of the app's own tokens. */
+.demo-bar { max-width: 75rem; margin: 1.25rem auto 0; padding: 0.7rem 1.2rem; text-align: center; font-size: 0.9rem;
+  border-radius: var(--r-lg); background: var(--warn-bg); border: 1px solid var(--warn-line); color: var(--text); }
+.demo-bar a { color: var(--green-deep); font-weight: 650; }
+.demo-samples { margin: 0.9rem 0; }
+.demo-strip { display: flex; flex-wrap: wrap; gap: 0.4rem; padding: 0.4rem 0; }
+.demo-strip button { padding: 0; border: 2px solid var(--green-line); border-radius: var(--r-md); background: none; cursor: pointer; overflow: hidden; }
+.demo-strip button:hover, .demo-strip button:focus-visible { border-color: var(--green); }
+.demo-strip img { display: block; width: 3.4rem; height: 3.4rem; object-fit: cover; }
+@media (max-width: 40rem) { .demo-bar { margin-inline: 1rem; } }
