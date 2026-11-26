@@ -2,7 +2,7 @@
 
 ## 🔗 [**LIVE DEMO UI: neonjava.github.io/prometheus-x**](https://neonjava.github.io/prometheus-x/)
 
-**The demo is the web page only, with no backend.** It replays results recorded from the real app on sample PCB photos. To check your own product, [set it up](#set-it-up-for-your-industry).
+**The demo is the web page only, with no backend.** It replays results recorded from the real app on sample PCB photos. **This is an SDK project: [set it up for your industry](#set-it-up-for-your-industry) and train it on your semiconductor part, PCB or any other object.**
 
 [![Demo: checking single photos, a zip batch and the review queue](docs/demo.gif)](docs/demo.mp4)
 
@@ -14,51 +14,8 @@ Open-set anomaly detection for industrial images (semiconductor and PCB focus), 
 
 For every image it reports: defect or not, where (heatmap), how bad (Low / Medium / High), how sure (defect probability), a warning if lighting or camera changed, and a Good / Defect / Uncertain verdict so a person only reviews the doubtful cases. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
-## Run it
-Needs Rust (stable). Everything below runs on the CPU.
-
-```bash
-# 1. ResNet-18 weights (once, not stored in git)
-mkdir -p models
-curl -L -o models/resnet18.safetensors \
-  https://huggingface.co/lmz/candle-resnet/resolve/main/resnet18.safetensors
-
-# 2. Dataset: split one VisA category (download VisA_20220922.tar from the VisA project)
-./scripts/download_visa.sh pcb1 data/visa_pcb1 0.15 /path/to/VisA_20220922.tar
-#    -> data/visa_pcb1/{train/good, val/good, test/good, test/defect}
-
-# 3. Learn what "good" looks like and set the thresholds (about 5 minutes on 700 images)
-cargo run --release -p cli -- build
-
-# 4. Use it
-cargo run --release -p cli -- predict data/visa_pcb1/test/defect/040.JPG
-cargo run --release -p cli -- evaluate
-cargo run --release -p server          # open http://127.0.0.1:8080
-cargo run --release -p cli -- robustness   # re-test on darker, brighter, blurry, colour-shifted photos
-```
-
-Every path, size and threshold is in [`config.toml`](config.toml). Use `--config <file>` to point the CLI at another one.
-
-| Key | Meaning |
-|---|---|
-| `model_weights_path`, `input_size`, `device` | ResNet weights, resize size, `cpu` or `cuda:<n>` |
-| `train_dir`, `val_dir`, `test_dir` | good training images, good validation images, test set (`good/` and `defect/`) |
-| `good_vectors_path`, `patch_bank_path` | where `build` saves what it learned |
-| `patch_bank_size`, `patch_seed` | how many good patches to keep, and the random seed |
-| `threshold_percentile`, `uncertain_margin` | threshold from good validation scores; the relative band around it that counts as Uncertain |
-| `shift_percentile` | how far from the training average counts as a lighting/camera change |
-| `severity_low_max`, `severity_med_max` | edges of the Low / Medium / High severity buckets |
-| `server_bind`, `max_upload_bytes`, `decisions_path`, `web_dir` | server address, single-image upload limit, where review decisions are saved, folder with the page files |
-| `batches_dir`, `max_batch_bytes`, `max_unpacked_bytes`, `max_batch_files`, `batch_workers`, `thumb_size` | where batches are kept, upload and zip-unpack limits, file cap, images checked at once, thumbnail size |
-| `products_dir`, `default_product`, `unknown_ratio` | trained products folder, name of the main model, how far a photo may be before it is unknown |
-| `captures_dir`, `camera_min_frames`, `camera_val_every` | where camera frames go, the fewest frames needed, which frames are held out |
-| `camera_threshold_percentile`, `camera_threshold_slack`, `camera_patch_bank_size` | how camera limits are set, and how many patches are kept |
-| `camera_learn_frames`, `camera_min_spot_cells`, `camera_edge_cells` | frames recorded to learn an object, smallest live anomaly, border ignored in the live view |
-| `min_mean_brightness` | images darker than this (0-255) are reported as errors, such as dataset mask files |
-| `robustness_sample`, `[[perturbations]]` | images per class and the photo changes used by `robustness` |
-
 ## Set it up for your industry
-Prometheus-X is an SDK-style project: the Rust libraries, a command-line tool and a web server are separate crates, so you train it on **your own semiconductor part, PCB or any other object** and change settings without changing code. First get the ResNet-18 weights (step 1 above).
+**Prometheus-X is an SDK project: each industry sets it up for itself and trains it on its own semiconductor part, PCB or any other object.** The Rust libraries, command-line tool and web server are separate crates, and settings change without changing code. First get the ResNet-18 weights ([step 1 of Run it](#run-it)).
 
 **1. Collect photos** with the same camera, distance, background and light you will inspect with.
 
@@ -113,6 +70,49 @@ The reply is JSON with the verdict, scores, heatmap grid and warnings. The serve
 | `crates/server` | web page and HTTP API |
 
 For a quick trial without folders, teach an object from the **Camera** page (see below).
+
+## Run it
+Needs Rust (stable). Everything below runs on the CPU.
+
+```bash
+# 1. ResNet-18 weights (once, not stored in git)
+mkdir -p models
+curl -L -o models/resnet18.safetensors \
+  https://huggingface.co/lmz/candle-resnet/resolve/main/resnet18.safetensors
+
+# 2. Dataset: split one VisA category (download VisA_20220922.tar from the VisA project)
+./scripts/download_visa.sh pcb1 data/visa_pcb1 0.15 /path/to/VisA_20220922.tar
+#    -> data/visa_pcb1/{train/good, val/good, test/good, test/defect}
+
+# 3. Learn what "good" looks like and set the thresholds (about 5 minutes on 700 images)
+cargo run --release -p cli -- build
+
+# 4. Use it
+cargo run --release -p cli -- predict data/visa_pcb1/test/defect/040.JPG
+cargo run --release -p cli -- evaluate
+cargo run --release -p server          # open http://127.0.0.1:8080
+cargo run --release -p cli -- robustness   # re-test on darker, brighter, blurry, colour-shifted photos
+```
+
+Every path, size and threshold is in [`config.toml`](config.toml). Use `--config <file>` to point the CLI at another one.
+
+| Key | Meaning |
+|---|---|
+| `model_weights_path`, `input_size`, `device` | ResNet weights, resize size, `cpu` or `cuda:<n>` |
+| `train_dir`, `val_dir`, `test_dir` | good training images, good validation images, test set (`good/` and `defect/`) |
+| `good_vectors_path`, `patch_bank_path` | where `build` saves what it learned |
+| `patch_bank_size`, `patch_seed` | how many good patches to keep, and the random seed |
+| `threshold_percentile`, `uncertain_margin` | threshold from good validation scores; the relative band around it that counts as Uncertain |
+| `shift_percentile` | how far from the training average counts as a lighting/camera change |
+| `severity_low_max`, `severity_med_max` | edges of the Low / Medium / High severity buckets |
+| `server_bind`, `max_upload_bytes`, `decisions_path`, `web_dir` | server address, single-image upload limit, where review decisions are saved, folder with the page files |
+| `batches_dir`, `max_batch_bytes`, `max_unpacked_bytes`, `max_batch_files`, `batch_workers`, `thumb_size` | where batches are kept, upload and zip-unpack limits, file cap, images checked at once, thumbnail size |
+| `products_dir`, `default_product`, `unknown_ratio` | trained products folder, name of the main model, how far a photo may be before it is unknown |
+| `captures_dir`, `camera_min_frames`, `camera_val_every` | where camera frames go, the fewest frames needed, which frames are held out |
+| `camera_threshold_percentile`, `camera_threshold_slack`, `camera_patch_bank_size` | how camera limits are set, and how many patches are kept |
+| `camera_learn_frames`, `camera_min_spot_cells`, `camera_edge_cells` | frames recorded to learn an object, smallest live anomaly, border ignored in the live view |
+| `min_mean_brightness` | images darker than this (0-255) are reported as errors, such as dataset mask files |
+| `robustness_sample`, `[[perturbations]]` | images per class and the photo changes used by `robustness` |
 
 ## Several products
 Each product has its own model; one ResNet is shared. Train a product by pointing a copy of `config.toml` at its `train_dir`, `val_dir`, `test_dir` and at `good_vectors_path` / `patch_bank_path` inside `models/products/<name>/`, then run `build` with `--config`. The server loads every trained folder in `products_dir`, detects the product from the photo and answers "unknown product" when a photo is more than `unknown_ratio` times the closest product's limit.
