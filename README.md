@@ -1,5 +1,9 @@
 # Prometheus-X
 
+## 🔗 [**LIVE DEMO UI: neonjava.github.io/prometheus-x**](https://neonjava.github.io/prometheus-x/)
+
+**The demo is the web page only, with no backend.** It replays results recorded from the real app on sample PCB photos. To check your own product, [set it up](#set-it-up-for-your-industry).
+
 [![Demo: checking single photos, a zip batch and the review queue](docs/demo.gif)](docs/demo.mp4)
 
 **[Watch the full demo video (90 s, MP4)](docs/demo.mp4).** Recorded from the running app. The single photos shown are ones the system handles correctly; measured accuracy, including where it fails, is [below](#how-well-it-works). Sample photos are from [MVTec AD](https://www.mvtec.com/company/research/datasets/mvtec-ad) (CC BY-NC-SA 4.0) and [VisA](https://github.com/amazon-science/spot-diff) (CC BY 4.0).
@@ -52,6 +56,63 @@ Every path, size and threshold is in [`config.toml`](config.toml). Use `--config
 | `camera_learn_frames`, `camera_min_spot_cells`, `camera_edge_cells` | frames recorded to learn an object, smallest live anomaly, border ignored in the live view |
 | `min_mean_brightness` | images darker than this (0-255) are reported as errors, such as dataset mask files |
 | `robustness_sample`, `[[perturbations]]` | images per class and the photo changes used by `robustness` |
+
+## Set it up for your industry
+Prometheus-X is an SDK-style project: the Rust libraries, a command-line tool and a web server are separate crates, so you train it on **your own semiconductor part, PCB or any other object** and change settings without changing code. First get the ResNet-18 weights (step 1 above).
+
+**1. Collect photos** with the same camera, distance, background and light you will inspect with.
+
+```text
+data/my-chip/
+  train/good/     good parts the model learns from
+  val/good/       other good parts, used to set the pass limit
+  test/good/      good parts for scoring
+  test/defect/    damaged parts, for scoring only (never trained on)
+```
+
+The measured results below used 704 training and 150 validation photos. With far fewer, expect weaker results.
+
+**2. Make a config for the product.** Copy `config.toml` to `my-chip.toml` and change:
+
+```toml
+train_dir = "data/my-chip/train/good"
+val_dir = "data/my-chip/val/good"
+test_dir = "data/my-chip/test"
+good_vectors_path = "models/products/my-chip/good_vectors.json"
+patch_bank_path = "models/products/my-chip/patch_bank.safetensors"
+```
+
+Keep both file names as they are: the server finds products by them.
+
+**3. Train and score it.**
+
+```bash
+cargo run --release -p cli -- --config my-chip.toml build
+cargo run --release -p cli -- --config my-chip.toml evaluate
+cargo run --release -p cli -- --config my-chip.toml predict path/to/photo.jpg
+```
+
+**4. Tune to your tolerance.** In `my-chip.toml`, a higher `threshold_percentile` passes more parts; a lower one flags more. `uncertain_margin` sets how many go to a person. Run `build` and `evaluate` again after a change.
+
+**5. Run it.** `cargo run --release -p server` serves every trained product (it uses `config.toml`; give another file as the first argument). Operators use the web page; other systems can send a photo to it:
+
+```bash
+curl -F "image=@photo.jpg" http://127.0.0.1:8080/predict
+```
+
+The reply is JSON with the verdict, scores, heatmap grid and warnings. The server has no login, so keep it on a trusted network.
+
+| Crate | Job |
+|---|---|
+| `crates/config` | settings from the TOML file |
+| `crates/data` | image loading and photo changes |
+| `crates/features` | ResNet-18 features with candle |
+| `crates/analysis` | thresholds, severity, shift check, metrics |
+| `crates/detector` | training, the two checks, verdicts, products |
+| `crates/cli` | `build`, `predict`, `evaluate`, `robustness` |
+| `crates/server` | web page and HTTP API |
+
+For a quick trial without folders, teach an object from the **Camera** page (see below).
 
 ## Several products
 Each product has its own model; one ResNet is shared. Train a product by pointing a copy of `config.toml` at its `train_dir`, `val_dir`, `test_dir` and at `good_vectors_path` / `patch_bank_path` inside `models/products/<name>/`, then run `build` with `--config`. The server loads every trained folder in `products_dir`, detects the product from the photo and answers "unknown product" when a photo is more than `unknown_ratio` times the closest product's limit.
