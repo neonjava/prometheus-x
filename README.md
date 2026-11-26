@@ -66,14 +66,17 @@ adb reverse tcp:8080 tcp:8080      # the phone's localhost:8080 now reaches the 
 Open `http://localhost:8080/#/camera` on the phone, and on the PC press *Watch other device* to see its view and verdicts live. Use the same background and light for teaching and inspecting. Very thin scratches may be missed: each frame is checked at 224 x 224.
 
 ## The web page
-Open http://127.0.0.1:8080. Five pages, in a soft white and green style with falling leaves:
+Open http://127.0.0.1:8080. Six pages, in a soft white and green style with falling leaves:
 - **Overview**: figures from the loaded model and links to everything.
 - **Check image**: drop one photo and watch each step in a console, with the heatmap.
 - **Batch**: drop a zip or many photos. A live progress bar, summary tiles (OK, needs review, defect, shift warnings, errors), a red / amber / green thumbnail grid you can filter and sort, a detail drawer with the heatmap, bulk OK / Reject / Fix, and CSV export. Results are saved under `batches_dir`, so a refresh or restart loses nothing. Old batches can be deleted from the page. Every result shows why it was flagged: how far past the limit each check was, a smooth heatmap, and numbered close-ups of the odd spots.
+- **Camera**: teach an object by filming it, then inspect it live (see above).
 - **Review**: every decision people saved.
 - **How it works**: the diagram and the steps.
 
 ## How well it works
+**Known limitation:** lighting changes are not handled well yet. On darker or brighter copies of good photos, almost all become Uncertain and the shift warning often stays silent. Re-run `prometheus-x robustness` to see it.
+
 VisA `pcb1`: 704 good for training, 150 good for validation, then 150 good and 100 defect for testing. Threshold at the 80th percentile.
 
 | Model | Image AUROC | False-positive rate |
